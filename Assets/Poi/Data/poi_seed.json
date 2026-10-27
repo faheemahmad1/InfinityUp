@@ -1,0 +1,12 @@
+{
+  "entries": [
+    { "id": 1, "name": "North Gate", "type": "Landmark", "x": 40, "z": 20, "iconKey": "Landmark", "priority": "High" },
+    { "id": 2, "name": "Supply Cache", "type": "Resource", "x": -30, "z": 50, "iconKey": "Resource", "priority": "Normal" },
+    { "id": 3, "name": "Fault Line", "type": "Hazard", "x": 80, "z": -40, "iconKey": "Hazard", "priority": "Critical" },
+    { "id": 4, "name": "Old Camp", "type": "Settlement", "x": -70, "z": -20, "iconKey": "Settlement", "priority": "Low" },
+    { "id": 5, "name": "Relay", "type": "Objective", "x": 15, "z": -90, "iconKey": "Objective", "priority": "High" },
+    { "id": 6, "name": "Watch Hill", "type": "Landmark", "x": 120, "z": 110, "iconKey": "Landmark", "priority": "Normal" },
+    { "id": 7, "name": "Ore Pocket", "type": "Resource", "x": -140, "z": 30, "iconKey": "Resource", "priority": "High" },
+    { "id": 8, "name": "Sinkhole", "type": "Hazard", "x": 200, "z": 10, "iconKey": "Hazard", "priority": "Critical" }
+  ]
+}

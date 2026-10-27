@@ -45,3 +45,7 @@ crashlytics-buildid.txt
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local tool output
+Docs/*.log
+Docs/*.xml
