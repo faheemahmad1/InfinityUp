@@ -8,7 +8,7 @@ using UnityEngine.UI;
 
 namespace Poi
 {
-    public sealed class PoiDemoController : MonoBehaviour
+    public sealed partial class PoiDemoController : MonoBehaviour
     {
         public PoiSystemConfig config;
         public PoiSeedCatalog seed;
@@ -62,6 +62,7 @@ namespace Poi
             BuildWorld();
             BuildHud();
             BeginMarkerLoad();
+            BeginCaptureIfRequested();
             built = true;
         }
 
@@ -89,6 +90,7 @@ namespace Poi
             UpdateHud();
             LastHudAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - hudStart;
             LastTotalFrameAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - frameAllocStart;
+            CaptureAfterFrame();
         }
 
         void SelectAndPresent()
@@ -99,7 +101,7 @@ namespace Poi
                 return;
             }
 
-            GroundFootprint.FromPose(cam.transform.position, cam.transform.rotation, cam.fieldOfView, cam.aspect, out float minX, out float minZ, out float maxX, out float maxZ);
+            GroundFootprint.FromCamera(cam, out float minX, out float minZ, out float maxX, out float maxZ);
             var query = new PoiQuery
             {
                 minX = minX,
@@ -225,7 +227,12 @@ namespace Poi
         {
             float x = Input.GetAxisRaw("Horizontal");
             float z = Input.GetAxisRaw("Vertical");
-            if (x == 0f && z == 0f)
+            if (captureActive)
+            {
+                x = 1f;
+                z = 0.35f;
+            }
+            else if (x == 0f && z == 0f)
             {
                 return;
             }

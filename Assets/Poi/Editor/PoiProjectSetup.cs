@@ -73,6 +73,29 @@ namespace Poi.EditorTools
             }
 
             EnsureScene(config, seed, presentation, types);
+            AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;
+            if (settings == null)
+            {
+                settings = AssetDatabase.LoadAssetAtPath<AddressableAssetSettings>("Assets/AddressableAssetsData/AddressableAssetSettings.asset");
+                if (settings != null)
+                {
+                    AddressableAssetSettingsDefaultObject.Settings = settings;
+                }
+            }
+
+            if (settings != null)
+            {
+                for (int i = 0; i < settings.DataBuilders.Count; i++)
+                {
+                    var builder = settings.GetDataBuilder(i);
+                    if (builder != null && builder.GetType().Name == "BuildScriptFastMode")
+                    {
+                        settings.ActivePlayModeDataBuilderIndex = i;
+                        break;
+                    }
+                }
+            }
+
             AssetDatabase.SaveAssets();
         }
 

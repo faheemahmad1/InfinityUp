@@ -1,0 +1,14 @@
+Mode: editor play mode
+Unity: 2022.3.62f2
+Hardware: Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz / 16151 MB / NVIDIA GeForce RTX 3070 Laptop GPU
+Camera height: 400. Pitch: 90. Moving percent: 5. Adds/sec: 20. Removes/sec: 20. Player speed: 120.
+Sample: 120 frames after 90 warmup frames, once the live count has reached the target.
+Frame time is Time.unscaledDeltaTime. Lookup, simulation, and grid times are the POI stopwatches.
+POI GC and Update GC are GC.GetAllocatedBytesForCurrentThread inside PoiDemoController.Update. Update GC includes the HUD text rebuild.
+Profiler GC marker valid: True name: Unity.Profiling.ProfilerRecorder
+columns: pois, alive, movers, avgFrameMs, p95FrameMs, lookupMs, simMs, gridMs, poiGcBytes, updateGcBytes, profilerGcBytes, markers, examined
+1000,1000,40.2,7.902,12.472,0.004,0.006,0.009,0,0,14435,1.0,4.0
+25000,25000,1223.0,8.332,11.285,0.022,0.104,0.226,0,0,15232,36.9,120.8
+250000,250000,12457.0,13.394,18.191,0.140,0.911,2.573,0,0,18720,250.0,816.9
+
+Profiler raw loaded=True SaveProfile bytes=21393780 path=D:\NationalGames\InfinityUp\Test\Docs\Profiles\poi-250k.data

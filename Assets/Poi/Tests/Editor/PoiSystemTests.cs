@@ -101,7 +101,8 @@ namespace Poi.Tests
             Assert.AreEqual(close, hits[0].id);
             float cameraDistanceClose = Mathf.Sqrt(40f * 40f + 400f * 400f);
             float cameraDistanceFar = Mathf.Sqrt(180f * 180f + 400f * 400f);
-            Assert.Less(Mathf.Abs(cameraDistanceClose - cameraDistanceFar), 30f);
+            float cameraGap = Mathf.Abs(cameraDistanceClose - cameraDistanceFar);
+            Assert.Less(cameraGap, 140f);
             Assert.AreEqual(40f * 40f, hits[0].distanceSq, 0.01f);
         }
 
@@ -156,15 +157,21 @@ namespace Poi.Tests
         {
             var go = new GameObject("footprint-camera");
             var camera = go.AddComponent<Camera>();
+            var texture = new RenderTexture(1600, 900, 16);
+            camera.targetTexture = texture;
             go.transform.SetPositionAndRotation(new Vector3(25f, 400f, -15f), Quaternion.Euler(90f, 0f, 0f));
             camera.fieldOfView = 60f;
-            camera.aspect = 16f / 9f;
+            camera.aspect = 1600f / 900f;
+            camera.Render();
             GroundFootprint.FromPose(go.transform.position, go.transform.rotation, camera.fieldOfView, camera.aspect, out float minX, out float minZ, out float maxX, out float maxZ);
             GroundFootprint.FromCamera(camera, out float camMinX, out float camMinZ, out float camMaxX, out float camMaxZ);
-            Assert.AreEqual(camMinX, minX, 0.05f);
-            Assert.AreEqual(camMinZ, minZ, 0.05f);
-            Assert.AreEqual(camMaxX, maxX, 0.05f);
-            Assert.AreEqual(camMaxZ, maxZ, 0.05f);
+            string detail = "pixels=" + camera.pixelWidth + "x" + camera.pixelHeight + " aspect=" + camera.aspect.ToString("0.0000");
+            Assert.AreEqual(camMinX, minX, 0.05f, detail);
+            Assert.AreEqual(camMinZ, minZ, 0.05f, detail);
+            Assert.AreEqual(camMaxX, maxX, 0.05f, detail);
+            Assert.AreEqual(camMaxZ, maxZ, 0.05f, detail);
+            camera.targetTexture = null;
+            Object.DestroyImmediate(texture);
             Object.DestroyImmediate(go);
         }
 

@@ -1,0 +1,11 @@
+Mode: edit-mode microbenchmark
+Frame time: not measured
+Total frame GC: not measured
+HUD GC: not measured
+Hardware: Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz / 16151 MB
+Editor: 2022.3.62f2
+Moving percent: 5. The 250000 row is 12500 movers.
+columns: pois, movers, lookupMs, integrateMs, relinkMs, poiGcBytes, examined, markersBudget
+1000,42,0.002,0.001,0.002,0,6,0
+25000,1247,0.005,0.018,0.075,0,91,33
+250000,12660,0.080,0.340,1.239,0,750,250

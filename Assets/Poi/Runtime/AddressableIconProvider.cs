@@ -17,6 +17,7 @@ namespace Poi
         readonly string[] addresses;
         readonly Sprite[] cache;
         readonly bool[] loading;
+        readonly bool[] settled;
         Pending[] pending = new Pending[32];
         int pendingCount;
 
@@ -30,15 +31,20 @@ namespace Poi
             this.addresses = addresses;
             cache = new Sprite[PoiEnums.IconCount];
             loading = new bool[PoiEnums.IconCount];
+            settled = new bool[PoiEnums.IconCount];
         }
 
         public void Request(IconKey key, int generation, IIconReceiver receiver)
         {
             int index = (int)key;
-            Sprite cached = cache[index];
-            if (cached != null)
+            if (settled[index])
             {
-                receiver.OnIconReady(generation, cached);
+                Sprite cached = cache[index];
+                if (cached != null)
+                {
+                    receiver.OnIconReady(generation, cached);
+                }
+
                 return;
             }
 
@@ -68,11 +74,12 @@ namespace Poi
         void OnLoaded(int index, AsyncOperationHandle<Sprite> handle)
         {
             loading[index] = false;
+            settled[index] = true;
             if (handle.Status == AsyncOperationStatus.Succeeded)
             {
                 cache[index] = handle.Result;
             }
-            else
+            else if (index != (int)IconKey.Fallback)
             {
                 cache[index] = cache[(int)IconKey.Fallback];
             }

@@ -1,6 +1,6 @@
 # POI System
 
-Unity **2022.3.62f3**. The brief asks for 2022.3.62f2. That editor is not installed. Building on 62f3 was approved. This is the same 2022.3 LTS line with a newer patch.
+Unity **2022.3.62f2**. `ProjectSettings/ProjectVersion.txt` matches that editor. The edit-mode tests and the play-mode capture below were run in that editor.
 
 The camera pitch is **90 degrees**, `Quaternion.Euler(90, 0, 0)`, looking straight down. Marker level of detail uses ground distance from the player on the XZ plane. Distance to the camera is not used, because a top-down camera puts every visible POI at nearly the same distance from the lens.
 
@@ -39,9 +39,9 @@ Sprites are in `Assets/Poi/Art/Placeholder/`. Assign a replacement on `PoiPresen
 
 Edit-mode tests are in `Assets/Poi/Tests/Editor/PoiSystemTests.cs`. They cover the grid, priority-first top-K, equal-priority examined counts, camera height, player movement, the real camera footprint, filters, rapid add/move/remove, the budget under churn, and stale icon completion. The 250,000 POI test asserts that a small footprint does not walk the whole store. It does not assert that the examined count is near 250.
 
-Unity **2022.3.62f3** is not installed on this machine right now. Unity Hub only has 6000.4.7f1. These tests were not executed, and no benchmark numbers were recorded. Do not treat this README as a passing test report.
+On 27 Oct 2026 the edit-mode suite was run in Unity 2022.3.62f2. Result: **16 passed, 0 failed, 0 skipped**. The summary is `Docs/editmode-summary.txt`.
 
-Run them from the Unity Test Runner on 2022.3.62f3, or:
+Run them again from the Unity Test Runner, or:
 
 ```
 Unity.exe -batchmode -nographics -projectPath <this folder> -runTests -testPlatform editmode -testResults Docs/editmode-results.xml
@@ -51,17 +51,21 @@ Unity.exe -batchmode -nographics -projectPath <this folder> -runTests -testPlatf
 
 `POI/Run Split Benchmark` writes `Docs/Measurements/editmode-split.txt`.
 
-That file is an edit-mode microbenchmark of lookup, mover integration, and grid relinks. It is not a frame-time measurement and it does not include the HUD. The table below stays blank until a play-mode capture exists. A cell is filled only from a recorder. Nothing here is estimated.
+That file is an edit-mode microbenchmark of lookup, mover integration, and grid relinks. It is not a frame-time measurement and it does not include the HUD. The table below is the editor play-mode capture in `Docs/Measurements/playmode.txt`.
 
-| POIs | Movers per frame | Avg frame ms | 95th pct frame ms | Lookup ms | Simulation ms | Grid update ms | POI-system GC bytes | Total frame GC bytes | Active markers |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1,000 |  |  |  |  |  |  |  |  |  |
-| 25,000 |  |  |  |  |  |  |  |  |  |
-| 250,000 | 12,500 |  |  |  |  |  |  |  |  |
+The capture used the demo scene: player moving, feed adding and removing 20 POIs per second, camera height 400 m, pitch 90, moving percent 5. Each row is 120 frames after 90 warmup frames, once the live count had reached the target. This is the editor, not a standalone player. Machine: Intel Core i7-10750H, 16 GB RAM, NVIDIA GeForce RTX 3070 Laptop GPU, Unity 2022.3.62f2.
 
-The 250,000 row is specified as 5 percent moving, which is 12,500 movers per frame. Frame time, the 95th percentile, and total frame GC were not measured in this implementation pass if the play-mode table is still empty. Do not read the edit-mode file as those columns.
+Frame time is `Time.unscaledDeltaTime`. Lookup, simulation, and grid times are the POI stopwatches. POI-system GC is `GC.GetAllocatedBytesForCurrentThread` around the POI work in `Update`. Total frame GC is `ProfilerRecorder` on `GC Allocated In Frame`. Active markers and examined counts are averages over the same 120 frames. Mover counts are the measured averages at 5 percent; random membership does not land on exactly 50, 1,250, and 12,500.
 
-A Profiler `.data` capture was not saved, because a play-mode session with the profiler attached was not run.
+| POIs | Movers per frame | Avg frame ms | 95th pct frame ms | Lookup ms | Simulation ms | Grid update ms | POI-system GC bytes | Total frame GC bytes | Active markers | Examined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1,000 | 40.2 | 7.902 | 12.472 | 0.004 | 0.006 | 0.009 | 0 | 14,435 | 1.0 | 4.0 |
+| 25,000 | 1,223.0 | 8.332 | 11.285 | 0.022 | 0.104 | 0.226 | 0 | 15,232 | 36.9 | 120.8 |
+| 250,000 | 12,457.0 | 13.394 | 18.191 | 0.140 | 0.911 | 2.573 | 0 | 18,720 | 250.0 | 816.9 |
+
+At 250,000 POIs the selector examined about 817 slots in the footprint and kept 250 markers. Examination is not capped at the marker budget. The POI-system counter read 0 bytes during these samples. The frame still allocated; that cost is the total-frame column.
+
+The 250,000 sample wrote `Docs/Profiles/poi-250k.raw` and `Docs/Profiles/poi-250k.data` (21,393,780 bytes). The `.data` file was produced by loading that raw capture and saving it from the editor profiler.
 
 ## Trade-offs and limitations
 

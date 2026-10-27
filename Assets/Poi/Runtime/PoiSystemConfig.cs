@@ -1,4 +1,3 @@
-using System;
 using UnityEngine;
 
 namespace Poi
@@ -49,36 +48,5 @@ namespace Poi
             if (playerSpeed < 0f) playerSpeed = 0f;
             version++;
         }
-    }
-
-    [CreateAssetMenu(fileName = "PoiSeedCatalog", menuName = "POI/Seed Catalog")]
-    public sealed class PoiSeedCatalog : ScriptableObject
-    {
-        public PoiSeedEntry[] entries = Array.Empty<PoiSeedEntry>();
-    }
-
-    [Serializable]
-    public struct PoiTypeRow
-    {
-        public PoiType type;
-        public string displayName;
-        public IconKey icon;
-    }
-
-    [CreateAssetMenu(fileName = "PoiTypeCatalog", menuName = "POI/Type Catalog")]
-    public sealed class PoiTypeCatalog : ScriptableObject
-    {
-        public PoiTypeRow[] rows = new PoiTypeRow[PoiEnums.TypeCount];
-    }
-
-    [CreateAssetMenu(fileName = "PoiPresentationCatalog", menuName = "POI/Presentation Catalog")]
-    public sealed class PoiPresentationCatalog : ScriptableObject
-    {
-        public string markerAddress = "Poi/Marker";
-        public string[] iconAddresses = new string[PoiEnums.IconCount];
-        public Sprite[] placeholderSprites = new Sprite[PoiEnums.IconCount];
-        public Material groundMaterial;
-        public Color groundColor = new Color(0.16f, 0.22f, 0.16f, 1f);
-        public Color playerColor = new Color(0.9f, 0.75f, 0.2f, 1f);
     }
 }
