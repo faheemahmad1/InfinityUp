@@ -1,0 +1,14 @@
+Mode: player
+Unity: 2022.3.62f2
+Hardware: Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz / 16151 MB / NVIDIA GeForce RTX 3070 Laptop GPU
+Camera height: 400. Pitch: 90. Moving percent: 5. Adds/sec: 20. Removes/sec: 20. Player speed: 120. Edge indicators: off.
+Sample: 120 frames after 90 warmup frames, once the live count has reached the target.
+Frame time is Time.unscaledDeltaTime. Lookup, simulation, and grid times are the POI stopwatches.
+POI GC and Update GC are GC.GetAllocatedBytesForCurrentThread inside PoiDemoController.Update. Update GC includes the HUD text rebuild.
+Profiler GC marker valid: False name: none
+Stats text is not rewritten during the 120 measured frames.
+When the profiler GC marker is unavailable, the profiler GC column is GC.GetAllocatedBytesForCurrentThread from the start of Update through the end of the frame.
+columns: pois, alive, movers, avgFrameMs, p95FrameMs, lookupMs, simMs, gridMs, poiGcBytes, updateGcBytes, profilerGcBytes, markers, examined
+1000,1000,39.9,2.418,3.778,0.007,0.009,0.019,0,0,0,9.0,11.0
+25000,25000,1224.9,2.484,3.799,0.025,0.160,0.342,0,0,0,38.3,107.0
+250000,250000,12454.0,7.026,8.808,0.143,1.028,3.362,0,0,0,182.6,735.7

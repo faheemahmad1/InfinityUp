@@ -12,3 +12,60 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c4b4808c756784546ada60b0de63ad73, type: 3}
   m_Name: PoiSeedCatalog
   m_EditorClassIdentifier: 
+  entries:
+  - id: 1
+    name: North Gate
+    type: 0
+    x: 40
+    z: 20
+    icon: 0
+    priority: 2
+  - id: 2
+    name: Supply Cache
+    type: 1
+    x: -30
+    z: 50
+    icon: 1
+    priority: 1
+  - id: 3
+    name: Fault Line
+    type: 2
+    x: 80
+    z: -40
+    icon: 2
+    priority: 3
+  - id: 4
+    name: Old Camp
+    type: 3
+    x: -70
+    z: -20
+    icon: 3
+    priority: 0
+  - id: 5
+    name: Relay
+    type: 4
+    x: 15
+    z: -90
+    icon: 4
+    priority: 2
+  - id: 6
+    name: Watch Hill
+    type: 0
+    x: 120
+    z: 110
+    icon: 0
+    priority: 1
+  - id: 7
+    name: Ore Pocket
+    type: 1
+    x: -140
+    z: 30
+    icon: 1
+    priority: 2
+  - id: 8
+    name: Sinkhole
+    type: 2
+    x: 200
+    z: 10
+    icon: 2
+    priority: 3

@@ -2,12 +2,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using TMPro;
 using UnityEngine;
-using UnityEngine.EventSystems;
-using UnityEngine.UI;
 
 namespace Poi
 {
-    public sealed partial class PoiDemoController : MonoBehaviour
+    public sealed class PoiDemoController : MonoBehaviour
     {
         public PoiSystemConfig config;
         public PoiSeedCatalog seed;
@@ -22,10 +20,11 @@ namespace Poi
         public double LastPoiAllocatedBytes { get; private set; }
         public double LastTotalFrameAllocatedBytes { get; private set; }
         public double LastHudAllocatedBytes { get; private set; }
+        public long LastFrameAllocatedBytes { get; private set; }
         public bool MarkersReady { get; private set; }
 
-        Transform player;
-        Camera cam;
+        PoiDemoWorld world;
+        PoiDemoHud hud;
         MarkerPresenter presenter;
         MarkerPresenter edgePresenter;
         MarkerPool markerPool;
@@ -36,26 +35,10 @@ namespace Poi
         float nextMockEmit;
         int nextMockId = 1000000;
         int selectedId = -1;
-        GameObject detailsPanel;
-        Text detailsText;
         MarkerView markerPrefab;
         readonly List<PoiHit> hits = new List<PoiHit>(256);
         readonly List<PoiHit> edgeHits = new List<PoiHit>(16);
         readonly Stopwatch lookupClock = new Stopwatch();
-        float hudTimer;
-        TMP_Text stats;
-        readonly char[] statsBuffer = new char[256];
-        readonly char[] detailsBuffer = new char[192];
-        readonly char[] detailsShown = new char[192];
-        int detailsLength;
-        Slider countSlider;
-        Slider heightSlider;
-        Slider addSlider;
-        Slider removeSlider;
-        Slider movePercentSlider;
-        Slider moveSpeedSlider;
-        Slider prioritySlider;
-        Toggle[] typeToggles;
         bool built;
         int lastBudget = -1;
         PoiPlayCapture playCapture;
@@ -72,12 +55,36 @@ namespace Poi
             mockReceiver = new PoiFeedReceiver(Service);
 
             Simulator.SetTargetCount(config.initialCount);
-            BuildWorld();
-            BuildHud();
+            world = new PoiDemoWorld();
+            world.Build(config, presentation);
+            hud = new PoiDemoHud();
+            hud.Build(
+                config,
+                presentation,
+                types,
+                Simulator,
+                AddOne,
+                MoveOne,
+                RemoveOne,
+                () => mockSocket.Disconnect(),
+                ReconnectMock,
+                on => mockFeedEnabled = on,
+                ClearSelection);
             BeginMarkerLoad();
             playCapture = new PoiPlayCapture(this);
             playCapture.BeginIfRequested();
             built = true;
+            StartCoroutine(WatchFrameAllocations());
+        }
+
+        System.Collections.IEnumerator WatchFrameAllocations()
+        {
+            var wait = new WaitForEndOfFrame();
+            while (true)
+            {
+                yield return wait;
+                LastFrameAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - frameAllocStart;
+            }
         }
 
         void Update()
@@ -89,8 +96,9 @@ namespace Poi
 
             frameAllocStart = System.GC.GetAllocatedBytesForCurrentThread();
             long poiStart = frameAllocStart;
-            MovePlayer();
-            PositionCamera();
+            bool captureDrive = playCapture != null && playCapture.Active;
+            world.Move(config, Time.deltaTime, captureDrive);
+            world.PositionCamera(config);
             Simulator.Tick(
                 Time.deltaTime,
                 5000,
@@ -101,7 +109,19 @@ namespace Poi
             SelectAndPresent();
             LastPoiAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - poiStart;
             long hudStart = System.GC.GetAllocatedBytesForCurrentThread();
-            UpdateHud();
+            if (playCapture == null || !playCapture.Measuring)
+            {
+                hud.Tick(
+                    Time.deltaTime,
+                    Service.Store.AliveCount,
+                    Simulator.MoverCount,
+                    ActiveMarkers,
+                    LastExamined,
+                    LastLookupMs,
+                    Simulator.LastIntegrateMs,
+                    Simulator.LastRelinkMs,
+                    config.cameraHeight);
+            }
             HandleMarkerClick();
             RefreshDetails();
             PumpMockFeed();
@@ -112,21 +132,21 @@ namespace Poi
 
         void SelectAndPresent()
         {
-            if (presenter == null || cam == null)
+            if (presenter == null || world.Camera == null)
             {
                 LastLookupMs = 0d;
                 return;
             }
 
-            GroundFootprint.FromCamera(cam, out float minX, out float minZ, out float maxX, out float maxZ);
+            GroundFootprint.FromCamera(world.Camera, out float minX, out float minZ, out float maxX, out float maxZ);
             var query = new PoiQuery
             {
                 minX = minX,
                 minZ = minZ,
                 maxX = maxX,
                 maxZ = maxZ,
-                playerX = player.position.x,
-                playerZ = player.position.z,
+                playerX = world.Player.position.x,
+                playerZ = world.Player.position.z,
                 closeRange = config.closeRange,
                 displayRange = config.displayRange,
                 budget = config.markerBudget,
@@ -143,8 +163,8 @@ namespace Poi
             if (config.showEdgeIndicators)
             {
                 edgeQuery.Select(
-                    player.position.x,
-                    player.position.z,
+                    world.Player.position.x,
+                    world.Player.position.z,
                     config.edgeRadius,
                     minX,
                     minZ,
@@ -159,6 +179,7 @@ namespace Poi
             {
                 edgeHits.Clear();
             }
+
             EnsurePoolSize();
             presenter.Sync(hits);
             if (edgePresenter != null)
@@ -176,7 +197,7 @@ namespace Poi
                 return;
             }
 
-            Vector3 p = player != null ? player.position : Vector3.zero;
+            Vector3 p = world != null && world.Player != null ? world.Player.position : Vector3.zero;
             Service.Add("Manual", PoiType.Objective, PoiPriority.Critical, IconKey.Objective, p.x + 20f, p.z + 20f);
             Simulator.SetTargetCount(Service.Store.AliveCount);
             config.initialCount = Service.Store.AliveCount;
@@ -226,75 +247,6 @@ namespace Poi
             {
                 presentation.iconAddresses = DefaultIconAddresses();
             }
-        }
-
-        void BuildWorld()
-        {
-            var lightGo = new GameObject("Sun");
-            var light = lightGo.AddComponent<Light>();
-            light.type = LightType.Directional;
-            lightGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-
-            var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            ground.name = "Ground";
-            float scale = config.worldSize / 10f;
-            ground.transform.localScale = new Vector3(scale, 1f, scale);
-            var renderer = ground.GetComponent<Renderer>();
-            if (presentation != null && presentation.groundMaterial != null)
-            {
-                renderer.sharedMaterial = presentation.groundMaterial;
-            }
-            else
-            {
-                renderer.material.color = presentation != null ? presentation.groundColor : new Color(0.16f, 0.22f, 0.16f);
-            }
-
-            var playerGo = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            playerGo.name = "Player";
-            playerGo.transform.position = new Vector3(0f, 1f, 0f);
-            playerGo.transform.localScale = new Vector3(4f, 4f, 4f);
-            playerGo.GetComponent<Renderer>().material.color = presentation != null ? presentation.playerColor : Color.yellow;
-            Object.Destroy(playerGo.GetComponent<Collider>());
-            player = playerGo.transform;
-
-            var camGo = new GameObject("TopDownCamera");
-            cam = camGo.AddComponent<Camera>();
-            cam.nearClipPlane = 0.3f;
-            cam.farClipPlane = 2000f;
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.08f, 0.09f, 0.1f);
-            PositionCamera();
-        }
-
-        void MovePlayer()
-        {
-            float x = Input.GetAxisRaw("Horizontal");
-            float z = Input.GetAxisRaw("Vertical");
-            if (playCapture != null && playCapture.Active)
-            {
-                x = 1f;
-                z = 0.35f;
-            }
-            else if (x == 0f && z == 0f)
-            {
-                return;
-            }
-
-            Vector3 next = player.position + new Vector3(x, 0f, z).normalized * (config.playerSpeed * Time.deltaTime);
-            float half = config.worldSize * 0.5f;
-            next.x = Mathf.Clamp(next.x, -half, half);
-            next.z = Mathf.Clamp(next.z, -half, half);
-            next.y = 1f;
-            player.position = next;
-        }
-
-        void PositionCamera()
-        {
-            config.cameraHeight = Mathf.Clamp(config.cameraHeight, config.minCameraHeight, config.maxCameraHeight);
-            cam.fieldOfView = config.fieldOfView;
-            cam.transform.SetPositionAndRotation(
-                new Vector3(player.position.x, config.cameraHeight, player.position.z),
-                Quaternion.Euler(90f, 0f, 0f));
         }
 
         void BeginMarkerLoad()
@@ -365,114 +317,19 @@ namespace Poi
             return view;
         }
 
-        void BuildHud()
-        {
-            if (FindObjectOfType<EventSystem>() == null)
-            {
-                var events = new GameObject("EventSystem");
-                events.AddComponent<EventSystem>();
-                events.AddComponent<StandaloneInputModule>();
-            }
-
-            var canvasGo = new GameObject("PoiHud");
-            var canvas = canvasGo.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvasGo.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            canvasGo.AddComponent<GraphicRaycaster>();
-            var panel = CreateRect("Panel", canvasGo.transform);
-            panel.anchorMin = new Vector2(0f, 0f);
-            panel.anchorMax = new Vector2(0f, 1f);
-            panel.pivot = new Vector2(0f, 0.5f);
-            panel.sizeDelta = new Vector2(320f, 0f);
-            panel.offsetMin = new Vector2(8f, 8f);
-            panel.offsetMax = new Vector2(328f, -8f);
-            var image = panel.gameObject.AddComponent<Image>();
-            image.color = new Color(0f, 0f, 0f, 0.55f);
-            var layout = panel.gameObject.AddComponent<VerticalLayoutGroup>();
-            layout.padding = new RectOffset(8, 8, 8, 8);
-            layout.spacing = 4f;
-            layout.childControlHeight = true;
-            layout.childControlWidth = true;
-            layout.childForceExpandHeight = false;
-
-            stats = CreateStats(panel);
-            countSlider = CreateSlider(panel, "POI count", 1000f, 250000f, config.initialCount, value =>
-            {
-                config.initialCount = Mathf.RoundToInt(value);
-                Simulator.SetTargetCount(config.initialCount);
-            });
-            heightSlider = CreateSlider(panel, "Camera height", config.minCameraHeight, config.maxCameraHeight, config.cameraHeight, value => config.cameraHeight = value);
-            addSlider = CreateSlider(panel, "Adds / sec", 0f, 200f, config.additionsPerSecond, value => config.additionsPerSecond = value);
-            removeSlider = CreateSlider(panel, "Removes / sec", 0f, 200f, config.removalsPerSecond, value => config.removalsPerSecond = value);
-            movePercentSlider = CreateSlider(panel, "Moving percent", 0f, 100f, config.movingPercent, value => config.movingPercent = value);
-            moveSpeedSlider = CreateSlider(panel, "Move speed", 0f, 200f, config.moveSpeed, value => config.moveSpeed = value);
-            prioritySlider = CreateSlider(panel, "Min priority", 0f, 3f, (float)config.minimumPriority, value => config.minimumPriority = (PoiPriority)Mathf.RoundToInt(value));
-            typeToggles = new Toggle[PoiEnums.TypeCount];
-            for (int i = 0; i < PoiEnums.TypeCount; i++)
-            {
-                int captured = i;
-                var type = (PoiType)i;
-                string label = types != null && types.rows != null && i < types.rows.Length && !string.IsNullOrEmpty(types.rows[i].displayName)
-                    ? types.rows[i].displayName
-                    : type.ToString();
-                typeToggles[i] = CreateToggle(panel, label, (config.typeMask & PoiEnums.TypeBit(type)) != 0, on =>
-                {
-                    int bit = PoiEnums.TypeBit((PoiType)captured);
-                    if (on) config.typeMask |= bit;
-                    else config.typeMask &= ~bit;
-                });
-            }
-
-            CreateButton(panel, "Add one", AddOne);
-            CreateButton(panel, "Move one", MoveOne);
-            CreateButton(panel, "Remove one", RemoveOne);
-            CreateToggle(panel, "Edge indicators", config.showEdgeIndicators, on => config.showEdgeIndicators = on);
-            CreateToggle(panel, "Mock socket", false, on => mockFeedEnabled = on);
-            CreateButton(panel, "Disconnect", () => mockSocket.Disconnect());
-            CreateButton(panel, "Reconnect", ReconnectMock);
-            BuildDetailsPanel(canvasGo.transform);
-        }
-
-        void BuildDetailsPanel(Transform canvas)
-        {
-            var panel = CreateRect("Details", canvas);
-            panel.anchorMin = new Vector2(1f, 1f);
-            panel.anchorMax = new Vector2(1f, 1f);
-            panel.pivot = new Vector2(1f, 1f);
-            panel.anchoredPosition = new Vector2(-12f, -12f);
-            panel.sizeDelta = new Vector2(280f, 160f);
-            panel.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.72f);
-            detailsText = CreateLabel(panel, "Details");
-            detailsText.rectTransform.offsetMin = new Vector2(8f, 28f);
-            detailsText.rectTransform.offsetMax = new Vector2(-8f, -8f);
-            var close = CreateRect("Close", panel);
-            close.anchorMin = new Vector2(0f, 0f);
-            close.anchorMax = new Vector2(1f, 0f);
-            close.pivot = new Vector2(0.5f, 0f);
-            close.sizeDelta = new Vector2(0f, 24f);
-            close.anchoredPosition = new Vector2(0f, 4f);
-            close.gameObject.AddComponent<Image>().color = new Color(0.2f, 0.25f, 0.3f, 1f);
-            var button = close.gameObject.AddComponent<Button>();
-            button.onClick.AddListener(ClearSelection);
-            var label = CreateLabel(close, "Close");
-            label.alignment = TextAnchor.MiddleCenter;
-            detailsPanel = panel.gameObject;
-            detailsPanel.SetActive(false);
-        }
-
         void HandleMarkerClick()
         {
-            if (cam == null || !Input.GetMouseButtonDown(0))
+            if (world.Camera == null || !Input.GetMouseButtonDown(0))
             {
                 return;
             }
 
-            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            if (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
                 return;
             }
 
-            Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+            Ray ray = world.Camera.ScreenPointToRay(Input.mousePosition);
             if (Mathf.Abs(ray.direction.y) < 0.0001f)
             {
                 return;
@@ -499,26 +356,14 @@ namespace Poi
 
         void RefreshDetails()
         {
-            if (detailsPanel == null)
-            {
-                return;
-            }
-
             if (selectedId < 0 || Service == null || !Service.Store.TryGet(selectedId, out PoiSnapshot snapshot) || !snapshot.alive)
             {
                 selectedId = -1;
-                detailsPanel.SetActive(false);
+                hud.HideDetails();
                 return;
             }
 
-            detailsPanel.SetActive(true);
-            int length = HudText.WriteDetails(detailsBuffer, snapshot);
-            if (!SameDetails(length))
-            {
-                detailsLength = length;
-                ArrayCopy(detailsBuffer, detailsShown, length);
-                detailsText.text = new string(detailsBuffer, 0, length);
-            }
+            hud.ShowDetails(snapshot);
         }
 
         void ClearSelection()
@@ -543,7 +388,7 @@ namespace Poi
             if (Time.unscaledTime >= nextMockEmit)
             {
                 nextMockEmit = Time.unscaledTime + config.mockInterval;
-                Vector3 p = player != null ? player.position : Vector3.zero;
+                Vector3 p = world.Player != null ? world.Player.position : Vector3.zero;
                 int id = nextMockId++;
                 mockSocket.MakeAdd(
                     id,
@@ -559,179 +404,6 @@ namespace Poi
             {
                 mockReceiver.Accept(message);
             }
-        }
-
-        void UpdateHud()
-        {
-            hudTimer += Time.deltaTime;
-            if (hudTimer < 0.25f || stats == null)
-            {
-                return;
-            }
-
-            hudTimer = 0f;
-            int length = HudText.WriteStats(
-                statsBuffer,
-                Service.Store.AliveCount,
-                Simulator.MoverCount,
-                ActiveMarkers,
-                LastExamined,
-                LastLookupMs,
-                Simulator.LastIntegrateMs,
-                Simulator.LastRelinkMs,
-                config.cameraHeight);
-            stats.SetCharArray(statsBuffer, 0, length);
-            SyncSlider(heightSlider, config.cameraHeight);
-        }
-
-        static void SyncSlider(Slider slider, float value)
-        {
-            if (slider == null || slider.IsActive() == false)
-            {
-                return;
-            }
-
-            slider.SetValueWithoutNotify(value);
-        }
-
-        static TMP_Text CreateStats(RectTransform parent)
-        {
-            var rect = CreateRect("Stats", parent);
-            var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
-            text.font = TMP_Settings.defaultFontAsset;
-            if (text.font == null)
-            {
-                text.font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
-            }
-            text.fontSize = 14f;
-            text.color = Color.white;
-            text.alignment = TextAlignmentOptions.TopLeft;
-            text.text = "Stats";
-            var layout = rect.gameObject.AddComponent<LayoutElement>();
-            layout.minHeight = 140f;
-            return text;
-        }
-
-        bool SameDetails(int length)
-        {
-            if (length != detailsLength)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < length; i++)
-            {
-                if (detailsBuffer[i] != detailsShown[i])
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        static void ArrayCopy(char[] source, char[] destination, int length)
-        {
-            for (int i = 0; i < length; i++)
-            {
-                destination[i] = source[i];
-            }
-        }
-
-        static RectTransform CreateRect(string name, Transform parent)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            return go.AddComponent<RectTransform>();
-        }
-
-        static Text CreateLabel(RectTransform parent, string value)
-        {
-            var rect = CreateRect(value, parent);
-            var text = rect.gameObject.AddComponent<Text>();
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            text.fontSize = 14;
-            text.color = Color.white;
-            text.alignment = TextAnchor.UpperLeft;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            text.text = value;
-            var layout = rect.gameObject.AddComponent<LayoutElement>();
-            layout.minHeight = 120f;
-            return text;
-        }
-
-        static Slider CreateSlider(RectTransform parent, string caption, float min, float max, float value, UnityEngine.Events.UnityAction<float> changed)
-        {
-            CreateLabel(parent, caption).GetComponent<LayoutElement>().minHeight = 18f;
-            var rect = CreateRect(caption + " Slider", parent);
-            rect.gameObject.AddComponent<LayoutElement>().minHeight = 20f;
-            var slider = rect.gameObject.AddComponent<Slider>();
-            var bg = CreateRect("Background", rect);
-            Stretch(bg);
-            bg.gameObject.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0.15f);
-            var fillArea = CreateRect("Fill Area", rect);
-            Stretch(fillArea);
-            var fill = CreateRect("Fill", fillArea);
-            Stretch(fill);
-            fill.gameObject.AddComponent<Image>().color = new Color(0.3f, 0.7f, 0.4f, 0.9f);
-            var handle = CreateRect("Handle", rect);
-            handle.sizeDelta = new Vector2(12f, 20f);
-            handle.gameObject.AddComponent<Image>().color = Color.white;
-            slider.fillRect = fill;
-            slider.handleRect = handle;
-            slider.targetGraphic = handle.GetComponent<Image>();
-            slider.minValue = min;
-            slider.maxValue = max;
-            slider.value = value;
-            slider.onValueChanged.AddListener(changed);
-            return slider;
-        }
-
-        static Toggle CreateToggle(RectTransform parent, string caption, bool value, UnityEngine.Events.UnityAction<bool> changed)
-        {
-            var rect = CreateRect(caption, parent);
-            rect.gameObject.AddComponent<LayoutElement>().minHeight = 20f;
-            var toggle = rect.gameObject.AddComponent<Toggle>();
-            var box = CreateRect("Box", rect);
-            box.anchorMin = new Vector2(0f, 0.5f);
-            box.anchorMax = new Vector2(0f, 0.5f);
-            box.sizeDelta = new Vector2(16f, 16f);
-            box.anchoredPosition = new Vector2(10f, 0f);
-            box.gameObject.AddComponent<Image>().color = Color.white;
-            var check = CreateRect("Check", box);
-            Stretch(check);
-            check.offsetMin = new Vector2(3f, 3f);
-            check.offsetMax = new Vector2(-3f, -3f);
-            check.gameObject.AddComponent<Image>().color = new Color(0.2f, 0.8f, 0.3f);
-            toggle.targetGraphic = box.GetComponent<Image>();
-            toggle.graphic = check.GetComponent<Image>();
-            toggle.isOn = value;
-            toggle.onValueChanged.AddListener(changed);
-            var label = CreateLabel(rect, caption);
-            label.rectTransform.offsetMin = new Vector2(24f, 0f);
-            label.GetComponent<LayoutElement>().minHeight = 18f;
-            return toggle;
-        }
-
-        static void CreateButton(RectTransform parent, string caption, UnityEngine.Events.UnityAction clicked)
-        {
-            var rect = CreateRect(caption, parent);
-            rect.gameObject.AddComponent<LayoutElement>().minHeight = 24f;
-            rect.gameObject.AddComponent<Image>().color = new Color(0.2f, 0.25f, 0.3f, 1f);
-            var button = rect.gameObject.AddComponent<Button>();
-            button.onClick.AddListener(clicked);
-            var label = CreateLabel(rect, caption);
-            label.alignment = TextAnchor.MiddleCenter;
-            label.GetComponent<LayoutElement>().minHeight = 24f;
-        }
-
-        static void Stretch(RectTransform rect)
-        {
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = Vector2.zero;
-            rect.offsetMax = Vector2.zero;
         }
 
         public static string[] DefaultIconAddresses()

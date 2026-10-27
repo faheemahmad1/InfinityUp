@@ -19,11 +19,11 @@ MonoBehaviour:
   markerBudget: 250
   minCameraHeight: 50
   maxCameraHeight: 400
-  cameraHeight: 400
+  cameraHeight: 150
   fieldOfView: 60
   initialCount: 1000
-  additionsPerSecond: 10
-  removalsPerSecond: 10
+  additionsPerSecond: 0
+  removalsPerSecond: 0
   movingPercent: 5
   moveSpeed: 40
   playerSpeed: 120

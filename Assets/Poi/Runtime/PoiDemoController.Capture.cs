@@ -11,11 +11,16 @@ namespace Poi
     public sealed class PoiPlayCapture
     {
         const string CaptureRequestPath = "Docs/play-capture.request";
-        const string CaptureResultPath = "Docs/Measurements/playmode.txt";
+        const string EditorResultPath = "Docs/Measurements/playmode.txt";
+        const string PlayerResultPath = "Docs/Measurements/player.txt";
         const string CaptureDonePath = "Docs/play-capture.done";
 
         readonly PoiDemoController host;
+        readonly bool playerBuild;
+        readonly string resultPath;
+        readonly string profilePath;
         public bool Active { get; private set; }
+        public bool Measuring { get; private set; }
         int captureIndex;
         int capturePhase;
         int captureFrames;
@@ -31,6 +36,8 @@ namespace Poi
         double sumExamined;
         double sumMovers;
         double sumProfilerGc;
+        double sumFrameGc;
+        int frameGcSamples;
         int profilerSamples;
         int savedInitialCount;
         float savedHeight;
@@ -48,6 +55,9 @@ namespace Poi
         public PoiPlayCapture(PoiDemoController host)
         {
             this.host = host;
+            playerBuild = !Application.isEditor;
+            resultPath = playerBuild ? PlayerResultPath : EditorResultPath;
+            profilePath = playerBuild ? "Docs/Profiles/poi-250k-player" : "Docs/Profiles/poi-250k";
         }
 
         public void BeginIfRequested()
@@ -78,6 +88,13 @@ namespace Poi
             host.config.minimumPriority = PoiPriority.Low;
             host.config.typeMask = PoiEnums.AllTypesMask;
             host.config.showEdgeIndicators = false;
+            if (playerBuild)
+            {
+                QualitySettings.vSyncCount = 0;
+                Application.targetFrameRate = -1;
+                Application.runInBackground = true;
+            }
+
             captureIndex = 0;
             capturePhase = 0;
             captureFrames = 0;
@@ -91,7 +108,7 @@ namespace Poi
                 gcRecorderValid = gcRecorder.Valid;
             }
 
-            captureReport.WriteLine("Mode: editor play mode");
+            captureReport.WriteLine(playerBuild ? "Mode: player" : "Mode: editor play mode");
             captureReport.WriteLine("Unity: " + Application.unityVersion);
             captureReport.WriteLine("Hardware: " + SystemInfo.processorType + " / " + SystemInfo.systemMemorySize + " MB / " + SystemInfo.graphicsDeviceName);
             captureReport.WriteLine("Camera height: 400. Pitch: 90. Moving percent: 5. Adds/sec: 20. Removes/sec: 20. Player speed: 120. Edge indicators: off.");
@@ -99,6 +116,11 @@ namespace Poi
             captureReport.WriteLine("Frame time is Time.unscaledDeltaTime. Lookup, simulation, and grid times are the POI stopwatches.");
             captureReport.WriteLine("POI GC and Update GC are GC.GetAllocatedBytesForCurrentThread inside PoiDemoController.Update. Update GC includes the HUD text rebuild.");
             captureReport.WriteLine("Profiler GC marker valid: " + gcRecorderValid + " name: " + (gcRecorderValid ? gcRecorder.ToString() : "none"));
+            if (playerBuild)
+            {
+                captureReport.WriteLine("Stats text is not rewritten during the 120 measured frames.");
+                captureReport.WriteLine("When the profiler GC marker is unavailable, the profiler GC column is GC.GetAllocatedBytesForCurrentThread from the start of Update through the end of the frame.");
+            }
             captureReport.WriteLine("columns: pois, alive, movers, avgFrameMs, p95FrameMs, lookupMs, simMs, gridMs, poiGcBytes, updateGcBytes, profilerGcBytes, markers, examined");
             Active = true;
             Directory.CreateDirectory("Docs/Measurements");
@@ -131,9 +153,9 @@ namespace Poi
                     captureFrames++;
                     if (captureFrames >= 90 && (host.MarkersReady || captureFrames >= 600))
                     {
-                        if (captureSizes[captureIndex] == 250000)
+                        if (captureSizes[captureIndex] == 250000 && !playerBuild)
                         {
-                            Profiler.logFile = Path.GetFullPath("Docs/Profiles/poi-250k");
+                            Profiler.logFile = Path.GetFullPath(profilePath);
                             Profiler.enableBinaryLog = true;
                             Profiler.enabled = true;
                         }
@@ -153,6 +175,12 @@ namespace Poi
                 sumMarkers += host.ActiveMarkers;
                 sumExamined += host.LastExamined;
                 sumMovers += host.Simulator.MoverCount;
+                if (captureFrames > 0)
+                {
+                    sumFrameGc += host.LastFrameAllocatedBytes;
+                    frameGcSamples++;
+                }
+
                 if (gcRecorderValid)
                 {
                     sumProfilerGc += gcRecorder.LastValue;
@@ -165,8 +193,9 @@ namespace Poi
                     return;
                 }
 
+                Measuring = false;
                 WriteCaptureRow();
-                if (captureSizes[captureIndex] == 250000)
+                if (captureSizes[captureIndex] == 250000 && !playerBuild)
                 {
                     Profiler.enableBinaryLog = false;
                     Profiler.logFile = string.Empty;
@@ -195,6 +224,7 @@ namespace Poi
         {
             capturePhase = 2;
             captureFrames = 0;
+            Measuring = true;
             frameMs.Clear();
             sumLookup = 0d;
             sumIntegrate = 0d;
@@ -205,6 +235,8 @@ namespace Poi
             sumExamined = 0d;
             sumMovers = 0d;
             sumProfilerGc = 0d;
+            sumFrameGc = 0d;
+            frameGcSamples = 0;
             profilerSamples = 0;
         }
 
@@ -228,7 +260,9 @@ namespace Poi
 
             string profilerCell = profilerSamples > 0
                 ? ((long)(sumProfilerGc / profilerSamples)).ToString(CultureInfo.InvariantCulture)
-                : "unavailable";
+                : frameGcSamples > 0
+                    ? ((long)(sumFrameGc / frameGcSamples)).ToString(CultureInfo.InvariantCulture)
+                    : "unavailable";
             captureReport.WriteLine(string.Format(
                 CultureInfo.InvariantCulture,
                 "{0},{1},{2:0.0},{3:0.000},{4:0.000},{5:0.000},{6:0.000},{7:0.000},{8:0},{9:0},{10},{11:0.0},{12:0.0}",
@@ -250,6 +284,7 @@ namespace Poi
         void FinishCapture()
         {
             Active = false;
+            Measuring = false;
             host.config.initialCount = savedInitialCount;
             host.config.cameraHeight = savedHeight;
             host.config.additionsPerSecond = savedAdds;
@@ -267,7 +302,13 @@ namespace Poi
             }
 
             Directory.CreateDirectory("Docs/Measurements");
-            File.WriteAllText(CaptureResultPath, captureReport.ToString());
+            File.WriteAllText(resultPath, captureReport.ToString());
+            if (playerBuild)
+            {
+                Application.Quit();
+                return;
+            }
+
             File.WriteAllText(CaptureDonePath, "done");
         }
     }

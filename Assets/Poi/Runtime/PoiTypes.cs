@@ -72,6 +72,7 @@ namespace Poi
         }
     }
 
+    [Serializable]
     public struct PoiSeedEntry
     {
         public int id;

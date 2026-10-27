@@ -53,11 +53,15 @@ Unity.exe -batchmode -nographics -projectPath <this folder> -runTests -testPlatf
 
 `POI/Run Split Benchmark` writes `Docs/Measurements/editmode-split.txt`.
 
-That file is an edit-mode microbenchmark of lookup, mover integration, and grid relinks. It is not a frame-time measurement and it does not include the HUD. The table below is the editor play-mode capture in `Docs/Measurements/playmode.txt`.
+That file is an edit-mode microbenchmark of lookup, mover integration, and grid relinks. It is not a frame-time measurement and it does not include the HUD. The first table is the editor play-mode capture in `Docs/Measurements/playmode.txt`. The runtime number is the player capture in `Docs/Measurements/player.txt`.
 
-The capture used the demo scene: player moving, feed adding and removing 20 POIs per second, camera height 400 m, pitch 90, moving percent 5, edge indicators off. Each row is 120 frames after 90 warmup frames, once the live count had reached the target. This is the editor, not a standalone player. Machine: Intel Core i7-10750H, 16 GB RAM, NVIDIA GeForce RTX 3070 Laptop GPU, Unity 2022.3.62f2.
+The capture used the demo scene: player moving, feed adding and removing 20 POIs per second, camera height 400 m, pitch 90, moving percent 5, edge indicators off. Each row is 120 frames after 90 warmup frames, once the live count had reached the target. Machine: Intel Core i7-10750H, 16 GB RAM, NVIDIA GeForce RTX 3070 Laptop GPU, Unity 2022.3.62f2.
 
-Frame time is `Time.unscaledDeltaTime`. Lookup, simulation, and grid times are the POI stopwatches. POI-system GC and the Update-thread counter are `GC.GetAllocatedBytesForCurrentThread` inside `PoiDemoController.Update`. Total frame GC is `ProfilerRecorder` on `GC Allocated In Frame`. Active markers and examined counts are averages over the same 120 frames. Mover counts are the measured averages at 5 percent; random membership does not land on exactly 50, 1,250, and 12,500.
+Frame time is `Time.unscaledDeltaTime`. Lookup, simulation, and grid times are the POI stopwatches. POI-system GC and the Update-thread counter are `GC.GetAllocatedBytesForCurrentThread` inside `PoiDemoController.Update`. In the editor table, total frame GC is `ProfilerRecorder` on `GC Allocated In Frame`. Active markers and examined counts are averages over the same 120 frames. Mover counts are the measured averages at 5 percent; random membership does not land on exactly 50, 1,250, and 12,500.
+
+### Editor
+
+This is the editor, not a standalone player. VSync and the editor loop are part of these frames.
 
 | POIs | Movers per frame | Avg frame ms | 95th pct frame ms | Lookup ms | Simulation ms | Grid update ms | POI-system GC bytes | Total frame GC bytes | Active markers | Examined |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -65,19 +69,31 @@ Frame time is `Time.unscaledDeltaTime`. Lookup, simulation, and grid times are t
 | 25,000 | 1,223.3 | 9.291 | 12.232 | 0.016 | 0.101 | 0.230 | 0 | 15,424 | 28.9 | 85.1 |
 | 250,000 | 12,455.4 | 16.259 | 26.375 | 0.156 | 0.944 | 2.817 | 0 | 18,023 | 180.3 | 736.9 |
 
-At 250,000 POIs the selector examined about 737 slots in the footprint. Declutter then kept about 180 markers, under the budget of 250. Examination is not capped at the marker budget. The POI-system counter and the Update-thread counter, which includes the HUD, both read 0 bytes on these samples. The profiler marker for the whole editor frame did not: that is the total-frame column. The 95th percentile at 250,000 is 26.375 ms, above a 60 fps frame. That number is the measurement. The 12,455 movers stay in the run. Edge indicators were off. The mock socket was off.
+At 250,000 POIs the selector examined about 737 slots in the footprint. Declutter then kept about 180 markers, under the budget of 250. Examination is not capped at the marker budget. The POI-system counter and the Update-thread counter, which includes the HUD, both read 0 bytes on these samples. The profiler marker for the whole editor frame did not: that is the total-frame column. The 95th percentile at 250,000 is 26.375 ms. That number is the editor measurement. The 12,455 movers stay in the run. Edge indicators were off. The mock socket was off.
 
-The 250,000 sample wrote `Docs/Profiles/poi-250k.raw` and `Docs/Profiles/poi-250k.data` (19,839,536 bytes). The `.data` file was produced by loading that raw capture and saving it from the editor profiler.
+The 250,000 editor sample wrote `Docs/Profiles/poi-250k.raw` and `Docs/Profiles/poi-250k.data` (19,839,536 bytes). The `.data` file was produced by loading that raw capture and saving it from the editor profiler.
+
+### Player
+
+`Docs/Measurements/player.txt` is a release player of the same scene and the same protocol: height 400, pitch 90, moving percent 5, adds and removes 20 per second, edges off, 120 frames after 90 warmup. VSync was off. The release player does not expose the `GC Allocated In Frame` profiler marker. The total-frame column is `GC.GetAllocatedBytesForCurrentThread` from the start of `Update` through the end of the frame. Stats text is not rewritten during those 120 frames, so a text rebuild is not inside the sample. The file records 0 for that counter. The POI stopwatches stay in the row, including the mover pass.
+
+| POIs | Movers per frame | Avg frame ms | 95th pct frame ms | Lookup ms | Simulation ms | Grid update ms | POI-system GC bytes | Total frame GC bytes | Active markers | Examined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1,000 | 39.9 | 2.418 | 3.778 | 0.007 | 0.009 | 0.019 | 0 | 0 | 9.0 | 11.0 |
+| 25,000 | 1,224.9 | 2.484 | 3.799 | 0.025 | 0.160 | 0.342 | 0 | 0 | 38.3 | 107.0 |
+| 250,000 | 12,454.0 | 7.026 | 8.808 | 0.143 | 1.028 | 3.362 | 0 | 0 | 182.6 | 735.7 |
+
+The 95th percentile at 250,000 is 8.808 ms. Movers average 12,454. Lookup, simulation, and grid update remain on the row.
 
 ## Trade-offs and limitations
 
 - Examination cost is the priority bands inside the footprint, then `O(B log K)` for the filling band. It does not grow when POIs are added outside that footprint. Mover integration is `O(movers)` and stays on its own clock.
-- A name string for a POI the feed actually adds can allocate. Steady movement, lookup, and the HUD stats path do not. The HUD writes into a reused character buffer. Addressables may allocate while an icon loads. The band buffer may allocate the first time it grows.
+- A name string for a POI the feed actually adds can allocate. Steady movement, lookup, and the HUD stats path do not. The HUD stats and the details panel both write into reused character buffers. Addressables may allocate while an icon loads. The band buffer may allocate the first time it grows.
 - Bulk count changes are batched, a few thousand POIs per frame, so a jump to 250,000 does not reload the scene and does not finish in one frame.
 - Rebuilding mover membership when the moving percent changes scans the alive set once. Per-frame movement does not.
 - World size and cell size cannot change during Play without rebuilding the grid.
 - Edge indicators default off. When enabled they cover High and Critical POIs inside the edge radius and outside the footprint, from a separate pool of 16 that is not part of the 250 budget. Declutter removes a marker that sits inside the radius of one already kept, higher priority first. Clicking a marker reads the store, so a removed POI clears the details panel. The mock socket is in-process: it numbers messages, holds later ones until the gap is filled, ignores duplicates, and replays the tail after reconnect. Its interval, offset, type, and priority are on `PoiSystemConfig`. It does not replace the bulk simulator.
-- Jobs, Burst, and worker threads are not used. At 250,000 POIs the POI stopwatches are lookup 0.156 ms, simulation 0.944 ms, and grid 2.817 ms inside a 16.259 ms average frame. The 95th percentile is 26.375 ms. That split does not justify moving the grid off the main thread.
+- Jobs, Burst, and worker threads are not used. In the editor at 250,000 POIs the POI stopwatches are lookup 0.156 ms, simulation 0.944 ms, and grid 2.817 ms inside a 16.259 ms average frame, and the 95th percentile is 26.375 ms. In the player the same protocol measures lookup 0.143 ms, simulation 1.028 ms, and grid 3.362 ms inside a 7.026 ms average frame, and the 95th percentile is 8.808 ms. That split does not justify moving the grid off the main thread.
 
 ## Submission
 

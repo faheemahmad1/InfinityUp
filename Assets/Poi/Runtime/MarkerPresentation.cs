@@ -24,25 +24,36 @@ namespace Poi
 
             if (Label != null)
             {
-                Label.text = Binding.Name;
-                Label.gameObject.SetActive(showLabel);
+                if (showLabel)
+                {
+                    Label.fontSize = 48f;
+                    Label.enableWordWrapping = false;
+                    Label.overflowMode = TextOverflowModes.Overflow;
+                    Label.alignment = TextAlignmentOptions.Center;
+                    Label.rectTransform.sizeDelta = new Vector2(140f, 24f);
+                    Label.rectTransform.localPosition = new Vector3(0f, 0f, 20f);
+                    Label.text = Binding.Name;
+                    Label.gameObject.SetActive(true);
+                }
+                else if (Label.gameObject.activeSelf)
+                {
+                    Label.gameObject.SetActive(false);
+                }
+            }
+
+            if (IconRenderer != null)
+            {
+                IconRenderer.transform.localScale = new Vector3(28f, 28f, 28f);
+            }
+
+            var box = GetComponent<BoxCollider>();
+            if (box != null)
+            {
+                Destroy(box);
             }
 
             transform.position = new Vector3(hit.x, 1.5f, hit.z);
-            EnsurePicker();
             icons?.Request(hit.icon, Binding.Generation, this);
-        }
-
-        void EnsurePicker()
-        {
-            BoxCollider box = GetComponent<BoxCollider>();
-            if (box == null)
-            {
-                box = gameObject.AddComponent<BoxCollider>();
-            }
-
-            box.isTrigger = true;
-            box.size = new Vector3(14f, 2f, 14f);
         }
 
         public void MoveTo(float x, float z)
@@ -58,9 +69,8 @@ namespace Poi
                 IconRenderer.sprite = null;
             }
 
-            if (Label != null)
+            if (Label != null && Label.gameObject.activeSelf)
             {
-                Label.text = string.Empty;
                 Label.gameObject.SetActive(false);
             }
 

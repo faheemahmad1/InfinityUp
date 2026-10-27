@@ -45,8 +45,18 @@ namespace Poi.EditorTools
             Directory.CreateDirectory("Assets/Poi/Config");
             Directory.CreateDirectory("Assets/Poi/Art/Placeholder");
             Directory.CreateDirectory("Assets/Poi/Data");
-            Sprite[] sprites = BuildSprites();
-            Material ground = BuildGroundMaterial();
+            string stampPath = "Assets/Poi/Art/Placeholder/map-look.txt";
+            string stamp = File.Exists(stampPath) ? File.ReadAllText(stampPath).Trim() : string.Empty;
+            bool paint = stamp != "5";
+            Sprite[] sprites = BuildSprites(paint);
+            Sprite playerSprite = BuildPlayerSprite(paint);
+            Material ground = BuildGroundMaterial(paint);
+            Material local = BuildLocalMaterial(paint);
+            if (paint)
+            {
+                File.WriteAllText(stampPath, "5");
+                AssetDatabase.ImportAsset(stampPath);
+            }
             GameObject prefab = BuildMarkerPrefab();
             var config = LoadOrCreate<PoiSystemConfig>(ConfigPath);
             var seed = LoadOrCreate<PoiSeedCatalog>(SeedPath);
@@ -63,7 +73,9 @@ namespace Poi.EditorTools
             presentation.iconAddresses = PoiDemoController.DefaultIconAddresses();
             presentation.markerAddress = "Poi/Marker";
             presentation.placeholderSprites = sprites;
+            presentation.playerSprite = playerSprite;
             presentation.groundMaterial = ground;
+            presentation.localMaterial = local;
             EditorUtility.SetDirty(presentation);
             MarkAddressable(AssetDatabase.AssetPathToGUID(PrefabPath), presentation.markerAddress);
             for (int i = 0; i < sprites.Length; i++)
@@ -99,66 +111,302 @@ namespace Poi.EditorTools
             AssetDatabase.SaveAssets();
         }
 
-        static Sprite[] BuildSprites()
+        static Sprite[] BuildSprites(bool paint)
         {
             var colors = new[]
             {
-                new Color(0.95f, 0.75f, 0.2f),
-                new Color(0.3f, 0.75f, 0.35f),
-                new Color(0.85f, 0.25f, 0.2f),
-                new Color(0.35f, 0.55f, 0.9f),
-                new Color(0.85f, 0.45f, 0.9f),
-                new Color(0.75f, 0.75f, 0.75f)
+                new Color(0.62f, 0.36f, 0.95f, 1f),
+                new Color(0.30f, 0.78f, 0.38f, 1f),
+                new Color(0.90f, 0.28f, 0.22f, 1f),
+                new Color(0.95f, 0.55f, 0.20f, 1f),
+                new Color(0.25f, 0.55f, 0.95f, 1f),
+                new Color(0.75f, 0.78f, 0.82f, 1f)
             };
             string[] names = { "Landmark", "Resource", "Hazard", "Settlement", "Objective", "Fallback" };
+            string[] shapes = { "star", "crate", "triangle", "house", "flag", "pin" };
             var sprites = new Sprite[names.Length];
             for (int i = 0; i < names.Length; i++)
             {
                 string path = "Assets/Poi/Art/Placeholder/" + names[i] + ".png";
-                if (!File.Exists(path))
+                if (paint || !File.Exists(path))
                 {
-                    var texture = new Texture2D(32, 32, TextureFormat.RGBA32, false);
-                    var pixels = new Color[32 * 32];
-                    for (int p = 0; p < pixels.Length; p++)
-                    {
-                        pixels[p] = colors[i];
-                    }
-
-                    texture.SetPixels(pixels);
-                    texture.Apply();
-                    File.WriteAllBytes(path, texture.EncodeToPNG());
-                    UnityEngine.Object.DestroyImmediate(texture);
+                    WriteSymbol(path, shapes[i], colors[i]);
                 }
 
-                AssetDatabase.ImportAsset(path);
-                var importer = (TextureImporter)AssetImporter.GetAtPath(path);
-                importer.textureType = TextureImporterType.Sprite;
-                importer.spritePixelsPerUnit = 32f;
-                importer.SaveAndReimport();
-                sprites[i] = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+                sprites[i] = ImportSprite(path, 128f);
             }
 
             return sprites;
         }
 
-        static Material BuildGroundMaterial()
+        static Sprite BuildPlayerSprite(bool paint)
+        {
+            const string path = "Assets/Poi/Art/Placeholder/Player.png";
+            if (paint || !File.Exists(path))
+            {
+                WriteSymbol(path, "arrow", new Color(0.25f, 0.62f, 0.98f, 1f));
+            }
+
+            return ImportSprite(path, 128f);
+        }
+
+        static Sprite ImportSprite(string path, float pixelsPerUnit)
+        {
+            AssetDatabase.ImportAsset(path);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            importer.textureType = TextureImporterType.Sprite;
+            importer.alphaIsTransparency = true;
+            importer.spritePixelsPerUnit = pixelsPerUnit;
+            importer.mipmapEnabled = false;
+            importer.SaveAndReimport();
+            return AssetDatabase.LoadAssetAtPath<Sprite>(path);
+        }
+
+        static void WriteSymbol(string path, string shape, Color color)
+        {
+            const int size = 128;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            var pixels = new Color[size * size];
+            float center = (size - 1) * 0.5f;
+            var ring = new Color(0.05f, 0.08f, 0.1f, 0.92f);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float nx = (x - center) / center;
+                    float ny = (y - center) / center;
+                    float radius = Mathf.Sqrt(nx * nx + ny * ny);
+                    bool mark = ShapeContains(shape, nx, ny);
+                    bool border = radius > 0.78f && radius < 0.94f;
+                    pixels[y * size + x] = mark ? color : border ? ring : new Color(0f, 0f, 0f, 0f);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            File.WriteAllBytes(path, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+        }
+
+        static bool ShapeContains(string shape, float nx, float ny)
+        {
+            if (shape == "star")
+            {
+                float angle = Mathf.Atan2(ny, nx) + Mathf.PI * 0.5f;
+                float sector = Mathf.PI * 2f / 5f;
+                float wrapped = angle % sector;
+                if (wrapped < 0f)
+                {
+                    wrapped += sector;
+                }
+
+                float t = wrapped / sector;
+                float edge = t < 0.5f ? t * 2f : (1f - t) * 2f;
+                float limit = Mathf.Lerp(0.46f, 0.18f, edge);
+                return Mathf.Sqrt(nx * nx + ny * ny) < limit;
+            }
+
+            if (shape == "crate")
+            {
+                bool box = Mathf.Abs(nx) < 0.40f && Mathf.Abs(ny) < 0.40f;
+                bool inner = Mathf.Abs(nx) < 0.26f && Mathf.Abs(ny) < 0.26f;
+                bool cross = inner && (Mathf.Abs(nx) < 0.07f || Mathf.Abs(ny) < 0.07f);
+                return (box && !inner) || cross;
+            }
+
+            if (shape == "triangle")
+            {
+                float half = (0.50f - ny) * 0.72f;
+                return ny > -0.40f && ny < 0.50f && half > 0f && Mathf.Abs(nx) < half;
+            }
+
+            if (shape == "house")
+            {
+                bool body = Mathf.Abs(nx) < 0.32f && ny > -0.42f && ny < 0.05f;
+                float roof = (0.50f - ny) * 0.95f;
+                bool top = ny >= 0.02f && ny < 0.50f && roof > 0f && Mathf.Abs(nx) < roof;
+                return body || top;
+            }
+
+            if (shape == "flag")
+            {
+                bool pole = nx > -0.30f && nx < -0.16f && ny > -0.46f && ny < 0.46f;
+                bool cloth = nx >= -0.16f && nx < 0.40f && ny > 0.05f && ny < 0.42f;
+                return pole || cloth;
+            }
+
+            if (shape == "arrow")
+            {
+                bool head = ny > 0.02f && Mathf.Abs(nx) < (0.62f - ny) * 0.85f && ny < 0.62f;
+                bool shaft = Mathf.Abs(nx) < 0.12f && ny > -0.52f && ny <= 0.12f;
+                return head || shaft;
+            }
+
+            float dx = nx;
+            float dy = ny - 0.08f;
+            return Mathf.Sqrt(dx * dx + dy * dy) < 0.28f;
+        }
+
+        static Material BuildGroundMaterial(bool paint)
         {
             const string path = "Assets/Poi/Art/Placeholder/Ground.mat";
             var material = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (material != null)
+            if (material == null)
+            {
+                Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null)
+                {
+                    shader = Shader.Find("Standard");
+                }
+
+                material = new Material(shader) { color = Color.white };
+                AssetDatabase.CreateAsset(material, path);
+            }
+
+            if (!paint && material.mainTexture != null)
             {
                 return material;
             }
 
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-            if (shader == null)
+            const string texturePath = "Assets/Poi/Art/Placeholder/GrassTile.png";
+            WriteGrass(texturePath);
+            var texture = ImportTexture(texturePath, TextureWrapMode.Repeat, false);
+            material.mainTexture = texture;
+            material.mainTextureScale = new Vector2(16000f / 64f, 16000f / 64f);
+            if (material.HasProperty("_BaseMap"))
             {
-                shader = Shader.Find("Standard");
+                material.SetTexture("_BaseMap", texture);
+                material.SetTextureScale("_BaseMap", material.mainTextureScale);
             }
 
-            material = new Material(shader) { color = new Color(0.16f, 0.22f, 0.16f) };
-            AssetDatabase.CreateAsset(material, path);
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", Color.white);
+            }
+
+            material.color = Color.white;
+            EditorUtility.SetDirty(material);
             return material;
+        }
+
+        static Material BuildLocalMaterial(bool paint)
+        {
+            const string path = "Assets/Poi/Art/Placeholder/LocalMap.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null)
+                {
+                    shader = Shader.Find("Standard");
+                }
+
+                material = new Material(shader) { color = Color.white };
+                AssetDatabase.CreateAsset(material, path);
+            }
+
+            if (!paint && material.mainTexture != null)
+            {
+                return material;
+            }
+
+            const string texturePath = "Assets/Poi/Art/Placeholder/LocalMap.png";
+            WriteLocal(texturePath);
+            var texture = ImportTexture(texturePath, TextureWrapMode.Clamp, true);
+            material.mainTexture = texture;
+            material.mainTextureScale = Vector2.one;
+            if (material.HasProperty("_BaseMap"))
+            {
+                material.SetTexture("_BaseMap", texture);
+            }
+
+            material.color = Color.white;
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        static Texture2D ImportTexture(string path, TextureWrapMode wrap, bool mipmaps)
+        {
+            AssetDatabase.ImportAsset(path);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            importer.textureType = TextureImporterType.Default;
+            importer.mipmapEnabled = mipmaps;
+            importer.wrapMode = wrap;
+            importer.filterMode = FilterMode.Bilinear;
+            importer.SaveAndReimport();
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        static float Speckle(int x, int y)
+        {
+            int h = (x * 374761393) ^ (y * 668265263);
+            h = (h ^ (h >> 13)) * 1274126177;
+            return ((h ^ (h >> 16)) & 255) / 255f;
+        }
+
+        static void WriteGrass(string path)
+        {
+            const int size = 128;
+            var texture = new Texture2D(size, size, TextureFormat.RGB24, false);
+            var pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float mix = 0.35f + Speckle(x, y) * 0.3f;
+                    pixels[y * size + x] = Color.Lerp(new Color(0.18f, 0.34f, 0.14f), new Color(0.34f, 0.52f, 0.22f), mix);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            File.WriteAllBytes(path, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+        }
+
+        static void WriteLocal(string path)
+        {
+            const int size = 512;
+            var texture = new Texture2D(size, size, TextureFormat.RGB24, false);
+            var pixels = new Color[size * size];
+            int center = size / 2;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int noise = (int)(Speckle(x, y) * 255f);
+                    Color pixel = Color.Lerp(new Color(0.22f, 0.40f, 0.18f), new Color(0.30f, 0.48f, 0.22f), noise / 255f);
+                    bool road = Mathf.Abs(x - center) <= 6 || Mathf.Abs(y - center) <= 6;
+                    int lx = x - (center + 90);
+                    int ly = y - (center - 70);
+                    int lake = lx * lx + ly * ly;
+                    int c1 = (x - (center - 40)) * (x - (center - 40)) + (y - (center + 30)) * (y - (center + 30));
+                    int c2 = (x - (center + 55)) * (x - (center + 55)) + (y - (center + 20)) * (y - (center + 20));
+                    if (lake < 70 * 70)
+                    {
+                        pixel = new Color(0.12f, 0.36f, 0.58f);
+                    }
+                    else if (lake < 78 * 78)
+                    {
+                        pixel = new Color(0.55f, 0.58f, 0.36f);
+                    }
+                    else if (road)
+                    {
+                        pixel = new Color(0.72f, 0.66f, 0.48f);
+                    }
+                    else if (c1 < 28 * 28 || c2 < 22 * 22)
+                    {
+                        pixel = new Color(0.16f, 0.26f, 0.14f);
+                    }
+
+                    pixels[y * size + x] = pixel;
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            File.WriteAllBytes(path, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
         }
 
         static GameObject BuildMarkerPrefab()
