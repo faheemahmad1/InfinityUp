@@ -29,7 +29,20 @@ namespace Poi
             }
 
             transform.position = new Vector3(hit.x, 1.5f, hit.z);
+            EnsurePicker();
             icons?.Request(hit.icon, Binding.Generation, this);
+        }
+
+        void EnsurePicker()
+        {
+            BoxCollider box = GetComponent<BoxCollider>();
+            if (box == null)
+            {
+                box = gameObject.AddComponent<BoxCollider>();
+            }
+
+            box.isTrigger = true;
+            box.size = new Vector3(14f, 2f, 14f);
         }
 
         public void MoveTo(float x, float z)

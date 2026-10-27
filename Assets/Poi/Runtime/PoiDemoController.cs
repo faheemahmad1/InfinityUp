@@ -28,9 +28,20 @@ namespace Poi
         Transform player;
         Camera cam;
         MarkerPresenter presenter;
+        MarkerPresenter edgePresenter;
         MarkerPool markerPool;
+        EdgeIndicatorQuery edgeQuery;
+        MockPoiSocket mockSocket;
+        PoiFeedReceiver mockReceiver;
+        bool mockFeedEnabled;
+        float nextMockEmit;
+        int nextMockId = 1000000;
+        int selectedId = -1;
+        GameObject detailsPanel;
+        Text detailsText;
         MarkerView markerPrefab;
         readonly List<PoiHit> hits = new List<PoiHit>(256);
+        readonly List<PoiHit> edgeHits = new List<PoiHit>(16);
         readonly Stopwatch lookupClock = new Stopwatch();
         float hudTimer;
         Text stats;
@@ -53,6 +64,9 @@ namespace Poi
             float cell = config.cellSize;
             Service = new PoiService(world, cell);
             Simulator = new PoiFeedSimulator(Service, 20260327);
+            edgeQuery = new EdgeIndicatorQuery(Service.Store, Service.Index);
+            mockSocket = new MockPoiSocket();
+            mockReceiver = new PoiFeedReceiver(Service);
             if (seed != null && seed.entries != null)
             {
                 Service.LoadSeed(seed.entries);
@@ -88,6 +102,9 @@ namespace Poi
             LastPoiAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - poiStart;
             long hudStart = System.GC.GetAllocatedBytesForCurrentThread();
             UpdateHud();
+            HandleMarkerClick();
+            RefreshDetails();
+            PumpMockFeed();
             LastHudAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - hudStart;
             LastTotalFrameAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - frameAllocStart;
             CaptureAfterFrame();
@@ -121,8 +138,26 @@ namespace Poi
             lookupClock.Stop();
             LastLookupMs = lookupClock.Elapsed.TotalMilliseconds;
             LastExamined = Service.Selector.SlotsVisited;
+            MarkerDeclutter.Apply(hits, config.declutterRadius);
+            edgeQuery.Select(
+                player.position.x,
+                player.position.z,
+                config.edgeRadius,
+                minX,
+                minZ,
+                maxX,
+                maxZ,
+                config.edgeMinimumPriority,
+                config.edgeBudget,
+                config.typeMask,
+                edgeHits);
             EnsurePoolSize();
             presenter.Sync(hits);
+            if (edgePresenter != null)
+            {
+                edgePresenter.Sync(edgeHits);
+            }
+
             ActiveMarkers = presenter.ActiveCount;
         }
 
@@ -269,7 +304,12 @@ namespace Poi
                 markerPool = new MarkerPool(root);
                 markerPool.Prewarm(prefab, Mathf.Max(1, config.markerBudget));
                 lastBudget = config.markerBudget;
-                presenter = new MarkerPresenter(markerPool, new AddressableIconProvider(presentation.iconAddresses));
+                var icons = new AddressableIconProvider(presentation.iconAddresses);
+                presenter = new MarkerPresenter(markerPool, icons);
+                var edgeRoot = new GameObject("EdgeMarkers").transform;
+                var edges = new MarkerPool(edgeRoot);
+                edges.Prewarm(prefab, Mathf.Max(1, config.edgeBudget));
+                edgePresenter = new MarkerPresenter(edges, icons);
                 MarkersReady = true;
             });
         }
@@ -378,6 +418,129 @@ namespace Poi
             CreateButton(panel, "Add one", AddOne);
             CreateButton(panel, "Move one", MoveOne);
             CreateButton(panel, "Remove one", RemoveOne);
+            CreateToggle(panel, "Mock socket", false, on => mockFeedEnabled = on);
+            CreateButton(panel, "Disconnect", () => mockSocket.Disconnect());
+            CreateButton(panel, "Reconnect", ReconnectMock);
+            BuildDetailsPanel(canvasGo.transform);
+        }
+
+        void BuildDetailsPanel(Transform canvas)
+        {
+            var panel = CreateRect("Details", canvas);
+            panel.anchorMin = new Vector2(1f, 1f);
+            panel.anchorMax = new Vector2(1f, 1f);
+            panel.pivot = new Vector2(1f, 1f);
+            panel.anchoredPosition = new Vector2(-12f, -12f);
+            panel.sizeDelta = new Vector2(280f, 160f);
+            panel.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.72f);
+            detailsText = CreateLabel(panel, "Details");
+            detailsText.rectTransform.offsetMin = new Vector2(8f, 28f);
+            detailsText.rectTransform.offsetMax = new Vector2(-8f, -8f);
+            var close = CreateRect("Close", panel);
+            close.anchorMin = new Vector2(0f, 0f);
+            close.anchorMax = new Vector2(1f, 0f);
+            close.pivot = new Vector2(0.5f, 0f);
+            close.sizeDelta = new Vector2(0f, 24f);
+            close.anchoredPosition = new Vector2(0f, 4f);
+            close.gameObject.AddComponent<Image>().color = new Color(0.2f, 0.25f, 0.3f, 1f);
+            var button = close.gameObject.AddComponent<Button>();
+            button.onClick.AddListener(ClearSelection);
+            var label = CreateLabel(close, "Close");
+            label.alignment = TextAnchor.MiddleCenter;
+            detailsPanel = panel.gameObject;
+            detailsPanel.SetActive(false);
+        }
+
+        void HandleMarkerClick()
+        {
+            if (cam == null || !Input.GetMouseButtonDown(0))
+            {
+                return;
+            }
+
+            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            {
+                return;
+            }
+
+            Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+            if (Mathf.Abs(ray.direction.y) < 0.0001f)
+            {
+                return;
+            }
+
+            float t = (1.5f - ray.origin.y) / ray.direction.y;
+            if (t < 0f)
+            {
+                return;
+            }
+
+            Vector3 point = ray.GetPoint(t);
+            int id = MarkerPick.Pick(hits, point.x, point.z, config.pickRadius);
+            if (id < 0)
+            {
+                id = MarkerPick.Pick(edgeHits, point.x, point.z, config.pickRadius);
+            }
+
+            if (id >= 0)
+            {
+                selectedId = id;
+            }
+        }
+
+        void RefreshDetails()
+        {
+            if (detailsPanel == null)
+            {
+                return;
+            }
+
+            if (selectedId < 0 || Service == null || !Service.Store.TryGet(selectedId, out PoiSnapshot snapshot) || !snapshot.alive)
+            {
+                selectedId = -1;
+                detailsPanel.SetActive(false);
+                return;
+            }
+
+            detailsPanel.SetActive(true);
+            detailsText.text = "Id " + snapshot.id
+                + "\n" + snapshot.name
+                + "\n" + snapshot.type
+                + "  " + snapshot.priority
+                + "\n" + snapshot.x.ToString("0") + ", " + snapshot.z.ToString("0");
+        }
+
+        void ClearSelection()
+        {
+            selectedId = -1;
+        }
+
+        void ReconnectMock()
+        {
+            mockFeedEnabled = true;
+            mockSocket.Connect();
+            mockSocket.ReplayAfter(mockReceiver.LastApplied);
+        }
+
+        void PumpMockFeed()
+        {
+            if (!mockFeedEnabled || captureActive || mockSocket == null)
+            {
+                return;
+            }
+
+            if (Time.unscaledTime >= nextMockEmit)
+            {
+                nextMockEmit = Time.unscaledTime + 0.5f;
+                Vector3 p = player != null ? player.position : Vector3.zero;
+                int id = nextMockId++;
+                mockSocket.MakeAdd(id, "Socket " + id, PoiType.Landmark, PoiPriority.High, IconKey.Landmark, p.x + 180f, p.z - 60f);
+            }
+
+            while (mockSocket.TryReceive(out FeedMessage message))
+            {
+                mockReceiver.Accept(message);
+            }
         }
 
         void UpdateHud()

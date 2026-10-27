@@ -21,6 +21,11 @@ namespace Poi.EditorTools
             EditorGUILayout.PropertyField(serializedObject.FindProperty("closeRange"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("displayRange"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("markerBudget"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("edgeBudget"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("edgeRadius"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("edgeMinimumPriority"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("declutterRadius"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("pickRadius"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("minCameraHeight"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("maxCameraHeight"));
             EditorGUILayout.Slider(serializedObject.FindProperty("cameraHeight"), 50f, 400f);

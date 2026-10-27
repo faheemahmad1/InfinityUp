@@ -8,7 +8,7 @@ The camera pitch is **90 degrees**, `Quaternion.Euler(90, 0, 0)`, looking straig
 
 Open `Assets/Scenes/PoiDemo.unity` after Unity imports the project. The first editor load runs `POI/Setup Project`, which creates the config assets, placeholder sprites, marker prefab, Addressables entries, and the demo scene if they are missing.
 
-WASD moves the player. The left panel changes POI count, type filters, minimum priority, camera height (50 m to 400 m), and the simulator. Add one, Move one, and Remove one call `PoiService`. The same config asset can be edited in the Inspector during Play. World size and cell size are locked while playing. Play Mode edits to the ScriptableObject are saved with the asset.
+WASD moves the player. The left panel changes POI count, type filters, minimum priority, camera height (50 m to 400 m), and the simulator. Add one, Move one, and Remove one call `PoiService`. Mock socket, Disconnect, and Reconnect drive the in-process feed. Click a marker for its store record. High and Critical POIs outside the view sit on the screen edge. The same config asset can be edited in the Inspector during Play. World size and cell size are locked while playing. Play Mode edits to the ScriptableObject are saved with the asset.
 
 ## Architecture
 
@@ -37,9 +37,9 @@ Sprites are in `Assets/Poi/Art/Placeholder/`. Assign a replacement on `PoiPresen
 
 ## Tests
 
-Edit-mode tests are in `Assets/Poi/Tests/Editor/PoiSystemTests.cs`. They cover the grid, priority-first top-K, equal-priority examined counts, camera height, player movement, the real camera footprint, filters, rapid add/move/remove, the budget under churn, and stale icon completion. The 250,000 POI test asserts that a small footprint does not walk the whole store. It does not assert that the examined count is near 250.
+Edit-mode tests are in `Assets/Poi/Tests/Editor/PoiSystemTests.cs` and `PoiOptionalTests.cs`. They cover the grid, priority-first top-K, equal-priority examined counts, camera height, player movement, the real camera footprint, filters, rapid add/move/remove, the budget under churn, stale icon completion, edge indicators, declutter, marker details, and the mock socket. The 250,000 POI test asserts that a small footprint does not walk the whole store. It does not assert that the examined count is near 250.
 
-On 27 Oct 2026 the edit-mode suite was run in Unity 2022.3.62f2. Result: **16 passed, 0 failed, 0 skipped**. The summary is `Docs/editmode-summary.txt`.
+On 28 Oct 2026 the edit-mode suite was run in Unity 2022.3.62f2. Result: **20 passed, 0 failed, 0 skipped**. The summary is `Docs/editmode-summary.txt`.
 
 Run them again from the Unity Test Runner, or:
 
@@ -59,13 +59,13 @@ Frame time is `Time.unscaledDeltaTime`. Lookup, simulation, and grid times are t
 
 | POIs | Movers per frame | Avg frame ms | 95th pct frame ms | Lookup ms | Simulation ms | Grid update ms | POI-system GC bytes | Total frame GC bytes | Active markers | Examined |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1,000 | 40.2 | 7.902 | 12.472 | 0.004 | 0.006 | 0.009 | 0 | 14,435 | 1.0 | 4.0 |
-| 25,000 | 1,223.0 | 8.332 | 11.285 | 0.022 | 0.104 | 0.226 | 0 | 15,232 | 36.9 | 120.8 |
-| 250,000 | 12,457.0 | 13.394 | 18.191 | 0.140 | 0.911 | 2.573 | 0 | 18,720 | 250.0 | 816.9 |
+| 1,000 | 39.6 | 6.391 | 11.345 | 0.002 | 0.002 | 0.005 | 0 | 26,898 | 1.0 | 4.0 |
+| 25,000 | 1,225.0 | 7.839 | 13.740 | 0.014 | 0.058 | 0.134 | 0 | 30,617 | 37.0 | 110.6 |
+| 250,000 | 12,456.8 | 15.794 | 26.750 | 0.119 | 0.605 | 1.916 | 0 | 43,428 | 189.5 | 845.0 |
 
-At 250,000 POIs the selector examined about 817 slots in the footprint and kept 250 markers. Examination is not capped at the marker budget. The POI-system counter read 0 bytes during these samples. The frame still allocated; that cost is the total-frame column.
+At 250,000 POIs the selector examined about 845 slots in the footprint. Declutter then kept about 190 markers, under the budget of 250. Examination is not capped at the marker budget. The POI-system counter read 0 bytes during these samples. The frame still allocated; that cost is the total-frame column. This capture includes edge indicators and declutter. The mock socket was off.
 
-The 250,000 sample wrote `Docs/Profiles/poi-250k.raw` and `Docs/Profiles/poi-250k.data` (21,393,780 bytes). The `.data` file was produced by loading that raw capture and saving it from the editor profiler.
+The 250,000 sample wrote `Docs/Profiles/poi-250k.raw` and `Docs/Profiles/poi-250k.data` (24,149,284 bytes). The `.data` file was produced by loading that raw capture and saving it from the editor profiler.
 
 ## Trade-offs and limitations
 
@@ -74,7 +74,8 @@ The 250,000 sample wrote `Docs/Profiles/poi-250k.raw` and `Docs/Profiles/poi-250
 - Bulk count changes are batched, a few thousand POIs per frame, so a jump to 250,000 does not reload the scene and does not finish in one frame.
 - Rebuilding mover membership when the moving percent changes scans the alive set once. Per-frame movement does not.
 - World size and cell size cannot change during Play without rebuilding the grid.
-- Off-screen indicators, declutter, click details, a mock network feed, and Jobs/Burst are not implemented.
+- Off-screen indicators cover High and Critical POIs inside the edge radius and outside the footprint, from a separate pool of 16. Declutter removes a marker that sits inside the radius of one already kept, higher priority first. Clicking a marker reads the store, so a removed POI clears the details panel. The mock socket is in-process: it numbers messages, holds later ones until the gap is filled, ignores duplicates, and replays the tail after reconnect. It does not replace the bulk simulator.
+- Jobs, Burst, and worker threads are not used. At 250,000 POIs the POI stopwatches are lookup 0.119 ms, simulation 0.605 ms, and grid 1.916 ms inside a 15.794 ms frame. That split does not justify moving the grid off the main thread.
 
 ## Submission
 

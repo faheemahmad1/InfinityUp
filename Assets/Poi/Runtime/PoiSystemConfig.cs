@@ -10,6 +10,11 @@ namespace Poi
         public float closeRange = 150f;
         public float displayRange = 500f;
         public int markerBudget = 250;
+        public int edgeBudget = 16;
+        public float edgeRadius = 2000f;
+        public PoiPriority edgeMinimumPriority = PoiPriority.High;
+        public float declutterRadius = 18f;
+        public float pickRadius = 18f;
         public float minCameraHeight = 50f;
         public float maxCameraHeight = 400f;
         public float cameraHeight = 400f;
@@ -34,6 +39,11 @@ namespace Poi
             if (displayRange < closeRange) displayRange = closeRange;
             if (markerBudget < 1) markerBudget = 1;
             if (markerBudget > 300) markerBudget = 300;
+            if (edgeBudget < 1) edgeBudget = 1;
+            if (edgeBudget > 32) edgeBudget = 32;
+            if (edgeRadius < 0f) edgeRadius = 0f;
+            if (declutterRadius < 0f) declutterRadius = 0f;
+            if (pickRadius < 1f) pickRadius = 1f;
             if (minCameraHeight < 10f) minCameraHeight = 10f;
             if (maxCameraHeight < minCameraHeight) maxCameraHeight = minCameraHeight;
             cameraHeight = Mathf.Clamp(cameraHeight, minCameraHeight, maxCameraHeight);
