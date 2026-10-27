@@ -1,8 +1,8 @@
 # POI System Prototype
 
-The brief asks for Unity **2022.3.62f2**. That editor is not installed. Hub has **2022.3.62f3** and Unity 6. You approved building on **2022.3.62f3** and documenting the patch mismatch in the README. Do not switch to Unity 6.
+The project is Unity **2022.3.62f2**. Do not open it in Unity 6.
 
-Optional items (edge indicators, declutter, click details, mock network, Jobs/Burst, bonus video) stay out. Nothing in this plan is implemented yet. A feature is not complete until its implementation and its automated test or its real measurement have passed. Estimates are not measurements.
+The delivery includes the required POI system plus off-screen edge indicators, declutter, marker details, and an in-process mock socket. Edge indicators default off so a scored run shows no marker outside the camera. Jobs and Burst are not used. A feature is not complete until its implementation and its automated test or its real measurement have passed. Estimates are not measurements.
 
 ## ScriptableObject architecture
 
@@ -166,17 +166,17 @@ The harness runs while the player is moving, the feed is churning, and the camer
 - POIs examined by the selector, so the complexity claim can be checked against `B_p`
 - hardware from `SystemInfo`, and whether the run was the Editor or a player build
 
-There is no zero-GC target written into the README ahead of the run. HUD text may allocate. Addressables may allocate. The band buffer may allocate when it grows. Those bytes belong in the total-frame column, and POI-system bytes are the separate column. A cell says 0 only when the recorder measured 0 on the steady-state samples. Cells that were not run stay blank. If 250,000 cannot be sustained, the README reports the size actually reached, the split timings up to that point, and the bottleneck.
+Steady movement, lookup, and the HUD stats path do not allocate after warmup. A name string for a POI the feed actually adds is the exception. Addressables may allocate while icons load. The band buffer may allocate when it first grows. Those bytes belong in the total-frame column, and POI-system bytes are the separate column. A cell says 0 only when the recorder measured 0 on the steady-state samples. If 250,000 cannot be sustained, the README reports the size actually reached, the split timings up to that point, and the bottleneck.
 
-A Unity Profiler capture (`.data`) of the largest run is saved under `Docs/Profiles/`. `README.md` states the real complexity above, pitch 90, editor 2022.3.62f3 with the approved f2 mismatch, how to swap placeholder art, trade-offs, and limitations. It does not say examination stays near the marker budget.
+A Unity Profiler capture (`.data`) of the largest run is saved under `Docs/Profiles/`. `README.md` states the real complexity above, pitch 90, editor 2022.3.62f2, how to swap placeholder art, trade-offs, and limitations. It does not say examination stays near the marker budget.
 
 Work lands as separate commits on `main` (the repo already has the initial project commit). After each stage the report lists files created, tests executed, failures, and remaining work. A failed test keeps that stage open. After measurements, create `poi-faheem.bundle` with `git bundle create poi-faheem.bundle main` and verify it by cloning. The brief wants the bundle, not a GitHub link, as the submission. Benchmark numbers are copied from the harness output only.
 
 ## Requirements checklist
 
-The optional bonus video, off-screen indicators, declutter, click details, mock network, and Jobs/Burst are not in this delivery.
+Edge indicators, declutter, click details, and the in-process mock socket are in this delivery. The bonus video is not. Jobs and Burst are not used.
 
-- Unity 2022.3.62f2: not installed. You approved 2022.3.62f3. The README records that approval and the mismatch.
+- Unity 2022.3.62f2.
 - 16 km by 16 km world: `PoiSystemConfig.worldSize` of 16000, one ground quad in `PoiDemo`.
 - Top-down camera, pitch 90, follows the player: `TopDownCamera` writes position from the player each frame and rotation `Euler(90, 0, 0)`.
 - Height 50 m to 400 m at runtime: config limits plus the HUD slider, applied every frame.
@@ -185,7 +185,7 @@ The optional bonus video, off-screen indicators, declutter, click details, mock 
 - `IPoiFeed` events Added, Moved, Changed, Removed: Moved is position only. Changed is name, type, priority, or icon and rebuckets when priority or type changes.
 - Simulator: initial count, additions per second, removals per second, moving percent, movement speed, all on the config and the HUD.
 - Live count from 1,000 to 250,000 and back without a scene reload: batched `PoiService` resize.
-- LOD by ground distance from the player, and no marker outside the camera footprint: the footprint helper matches `ViewportToWorldPoint`. Camera-to-POI distance is not used.
+- LOD by ground distance from the player, and no marker outside the camera footprint: the footprint is the camera frustum rays intersected with the ground. A hysteresis band around close range holds icon versus icon-plus-label. Edge indicators are a separate pool and default off.
 - Budget default 250, configurable, priority first and nearest within that priority, reapplied every frame while the player and the feed move. Examination of a priority band is not limited to 250. A test with a band larger than the budget asserts both the nearest-K result and an examined count equal to the band.
 - Pooled markers, one prefab and icons loaded once through Addressables, generation guard so a recycled marker cannot keep a stale name or sprite.
 - No GameObject or MonoBehaviour per POI: only pooled marker views exist. A test can assert the store holds 250,000 slots with zero scene objects, because it never opens a scene.

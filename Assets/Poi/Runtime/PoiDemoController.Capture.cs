@@ -8,13 +8,14 @@ using UnityEngine.Profiling;
 
 namespace Poi
 {
-    public sealed partial class PoiDemoController
+    public sealed class PoiPlayCapture
     {
         const string CaptureRequestPath = "Docs/play-capture.request";
         const string CaptureResultPath = "Docs/Measurements/playmode.txt";
         const string CaptureDonePath = "Docs/play-capture.done";
 
-        bool captureActive;
+        readonly PoiDemoController host;
+        public bool Active { get; private set; }
         int captureIndex;
         int capturePhase;
         int captureFrames;
@@ -40,10 +41,16 @@ namespace Poi
         float savedPlayerSpeed;
         PoiPriority savedPriority;
         int savedMask;
+        bool savedEdges;
         ProfilerRecorder gcRecorder;
         bool gcRecorderValid;
 
-        void BeginCaptureIfRequested()
+        public PoiPlayCapture(PoiDemoController host)
+        {
+            this.host = host;
+        }
+
+        public void BeginIfRequested()
         {
             if (!File.Exists(CaptureRequestPath))
             {
@@ -51,28 +58,30 @@ namespace Poi
             }
 
             File.Delete(CaptureRequestPath);
-            savedInitialCount = config.initialCount;
-            savedHeight = config.cameraHeight;
-            savedAdds = config.additionsPerSecond;
-            savedRemoves = config.removalsPerSecond;
-            savedMoving = config.movingPercent;
-            savedMoveSpeed = config.moveSpeed;
-            savedPlayerSpeed = config.playerSpeed;
-            savedPriority = config.minimumPriority;
-            savedMask = config.typeMask;
+            savedInitialCount = host.config.initialCount;
+            savedHeight = host.config.cameraHeight;
+            savedAdds = host.config.additionsPerSecond;
+            savedRemoves = host.config.removalsPerSecond;
+            savedMoving = host.config.movingPercent;
+            savedMoveSpeed = host.config.moveSpeed;
+            savedPlayerSpeed = host.config.playerSpeed;
+            savedPriority = host.config.minimumPriority;
+            savedMask = host.config.typeMask;
+            savedEdges = host.config.showEdgeIndicators;
 
-            config.cameraHeight = 400f;
-            config.additionsPerSecond = 20f;
-            config.removalsPerSecond = 20f;
-            config.movingPercent = 5f;
-            config.moveSpeed = 40f;
-            config.playerSpeed = 120f;
-            config.minimumPriority = PoiPriority.Low;
-            config.typeMask = PoiEnums.AllTypesMask;
+            host.config.cameraHeight = 400f;
+            host.config.additionsPerSecond = 20f;
+            host.config.removalsPerSecond = 20f;
+            host.config.movingPercent = 5f;
+            host.config.moveSpeed = 40f;
+            host.config.playerSpeed = 120f;
+            host.config.minimumPriority = PoiPriority.Low;
+            host.config.typeMask = PoiEnums.AllTypesMask;
+            host.config.showEdgeIndicators = false;
             captureIndex = 0;
             capturePhase = 0;
             captureFrames = 0;
-            Simulator.SetTargetCount(captureSizes[0]);
+            host.Simulator.SetTargetCount(captureSizes[0]);
             gcRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Memory, "GC Allocated In Frame");
             gcRecorderValid = gcRecorder.Valid;
             if (!gcRecorderValid)
@@ -85,30 +94,30 @@ namespace Poi
             captureReport.WriteLine("Mode: editor play mode");
             captureReport.WriteLine("Unity: " + Application.unityVersion);
             captureReport.WriteLine("Hardware: " + SystemInfo.processorType + " / " + SystemInfo.systemMemorySize + " MB / " + SystemInfo.graphicsDeviceName);
-            captureReport.WriteLine("Camera height: 400. Pitch: 90. Moving percent: 5. Adds/sec: 20. Removes/sec: 20. Player speed: 120.");
+            captureReport.WriteLine("Camera height: 400. Pitch: 90. Moving percent: 5. Adds/sec: 20. Removes/sec: 20. Player speed: 120. Edge indicators: off.");
             captureReport.WriteLine("Sample: 120 frames after 90 warmup frames, once the live count has reached the target.");
             captureReport.WriteLine("Frame time is Time.unscaledDeltaTime. Lookup, simulation, and grid times are the POI stopwatches.");
             captureReport.WriteLine("POI GC and Update GC are GC.GetAllocatedBytesForCurrentThread inside PoiDemoController.Update. Update GC includes the HUD text rebuild.");
             captureReport.WriteLine("Profiler GC marker valid: " + gcRecorderValid + " name: " + (gcRecorderValid ? gcRecorder.ToString() : "none"));
             captureReport.WriteLine("columns: pois, alive, movers, avgFrameMs, p95FrameMs, lookupMs, simMs, gridMs, poiGcBytes, updateGcBytes, profilerGcBytes, markers, examined");
-            captureActive = true;
+            Active = true;
             Directory.CreateDirectory("Docs/Measurements");
             Directory.CreateDirectory("Docs/Profiles");
         }
 
-        void CaptureAfterFrame()
+        public void AfterFrame()
         {
-            if (!captureActive || Service == null)
+            if (!Active || host.Service == null)
             {
                 return;
             }
 
             try
             {
-                config.cameraHeight = 400f;
+                host.config.cameraHeight = 400f;
                 if (capturePhase == 0)
                 {
-                    if (Service.Store.AliveCount == captureSizes[captureIndex] && Simulator.MoverCount > 0)
+                    if (host.Service.Store.AliveCount == captureSizes[captureIndex] && host.Simulator.MoverCount > 0)
                     {
                         capturePhase = 1;
                         captureFrames = 0;
@@ -120,7 +129,7 @@ namespace Poi
                 if (capturePhase == 1)
                 {
                     captureFrames++;
-                    if (captureFrames >= 90 && (MarkersReady || captureFrames >= 600))
+                    if (captureFrames >= 90 && (host.MarkersReady || captureFrames >= 600))
                     {
                         if (captureSizes[captureIndex] == 250000)
                         {
@@ -136,14 +145,14 @@ namespace Poi
                 }
 
                 frameMs.Add(Time.unscaledDeltaTime * 1000f);
-                sumLookup += LastLookupMs;
-                sumIntegrate += Simulator.LastIntegrateMs;
-                sumRelink += Simulator.LastRelinkMs;
-                sumPoiGc += LastPoiAllocatedBytes;
-                sumUpdateGc += LastTotalFrameAllocatedBytes;
-                sumMarkers += ActiveMarkers;
-                sumExamined += LastExamined;
-                sumMovers += Simulator.MoverCount;
+                sumLookup += host.LastLookupMs;
+                sumIntegrate += host.Simulator.LastIntegrateMs;
+                sumRelink += host.Simulator.LastRelinkMs;
+                sumPoiGc += host.LastPoiAllocatedBytes;
+                sumUpdateGc += host.LastTotalFrameAllocatedBytes;
+                sumMarkers += host.ActiveMarkers;
+                sumExamined += host.LastExamined;
+                sumMovers += host.Simulator.MoverCount;
                 if (gcRecorderValid)
                 {
                     sumProfilerGc += gcRecorder.LastValue;
@@ -170,7 +179,7 @@ namespace Poi
                     return;
                 }
 
-                Simulator.SetTargetCount(captureSizes[captureIndex]);
+                host.Simulator.SetTargetCount(captureSizes[captureIndex]);
                 capturePhase = 0;
                 captureFrames = 0;
             }
@@ -224,7 +233,7 @@ namespace Poi
                 CultureInfo.InvariantCulture,
                 "{0},{1},{2:0.0},{3:0.000},{4:0.000},{5:0.000},{6:0.000},{7:0.000},{8:0},{9:0},{10},{11:0.0},{12:0.0}",
                 captureSizes[captureIndex],
-                Service.Store.AliveCount,
+                host.Service.Store.AliveCount,
                 sumMovers / n,
                 avg,
                 sorted[p95Index],
@@ -240,17 +249,18 @@ namespace Poi
 
         void FinishCapture()
         {
-            captureActive = false;
-            config.initialCount = savedInitialCount;
-            config.cameraHeight = savedHeight;
-            config.additionsPerSecond = savedAdds;
-            config.removalsPerSecond = savedRemoves;
-            config.movingPercent = savedMoving;
-            config.moveSpeed = savedMoveSpeed;
-            config.playerSpeed = savedPlayerSpeed;
-            config.minimumPriority = savedPriority;
-            config.typeMask = savedMask;
-            Simulator.SetTargetCount(savedInitialCount);
+            Active = false;
+            host.config.initialCount = savedInitialCount;
+            host.config.cameraHeight = savedHeight;
+            host.config.additionsPerSecond = savedAdds;
+            host.config.removalsPerSecond = savedRemoves;
+            host.config.movingPercent = savedMoving;
+            host.config.moveSpeed = savedMoveSpeed;
+            host.config.playerSpeed = savedPlayerSpeed;
+            host.config.minimumPriority = savedPriority;
+            host.config.typeMask = savedMask;
+            host.config.showEdgeIndicators = savedEdges;
+            host.Simulator.SetTargetCount(savedInitialCount);
             if (gcRecorder.Valid)
             {
                 gcRecorder.Dispose();

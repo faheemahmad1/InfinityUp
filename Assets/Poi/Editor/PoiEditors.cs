@@ -26,6 +26,13 @@ namespace Poi.EditorTools
             EditorGUILayout.PropertyField(serializedObject.FindProperty("edgeMinimumPriority"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("declutterRadius"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("pickRadius"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("showEdgeIndicators"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("lodHysteresis"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("mockInterval"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("mockOffsetX"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("mockOffsetZ"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("mockType"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("mockPriority"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("minCameraHeight"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("maxCameraHeight"));
             EditorGUILayout.Slider(serializedObject.FindProperty("cameraHeight"), 50f, 400f);

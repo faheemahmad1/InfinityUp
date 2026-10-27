@@ -15,6 +15,13 @@ namespace Poi
         public PoiPriority edgeMinimumPriority = PoiPriority.High;
         public float declutterRadius = 18f;
         public float pickRadius = 18f;
+        public bool showEdgeIndicators;
+        public float lodHysteresis = 10f;
+        public float mockInterval = 0.5f;
+        public float mockOffsetX = 180f;
+        public float mockOffsetZ = -60f;
+        public PoiType mockType = PoiType.Landmark;
+        public PoiPriority mockPriority = PoiPriority.High;
         public float minCameraHeight = 50f;
         public float maxCameraHeight = 400f;
         public float cameraHeight = 400f;
@@ -44,6 +51,8 @@ namespace Poi
             if (edgeRadius < 0f) edgeRadius = 0f;
             if (declutterRadius < 0f) declutterRadius = 0f;
             if (pickRadius < 1f) pickRadius = 1f;
+            if (lodHysteresis < 0f) lodHysteresis = 0f;
+            if (mockInterval < 0.05f) mockInterval = 0.05f;
             if (minCameraHeight < 10f) minCameraHeight = 10f;
             if (maxCameraHeight < minCameraHeight) maxCameraHeight = minCameraHeight;
             cameraHeight = Mathf.Clamp(cameraHeight, minCameraHeight, maxCameraHeight);

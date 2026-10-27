@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -44,7 +43,11 @@ namespace Poi
         readonly List<PoiHit> edgeHits = new List<PoiHit>(16);
         readonly Stopwatch lookupClock = new Stopwatch();
         float hudTimer;
-        Text stats;
+        TMP_Text stats;
+        readonly char[] statsBuffer = new char[256];
+        readonly char[] detailsBuffer = new char[192];
+        readonly char[] detailsShown = new char[192];
+        int detailsLength;
         Slider countSlider;
         Slider heightSlider;
         Slider addSlider;
@@ -55,28 +58,25 @@ namespace Poi
         Toggle[] typeToggles;
         bool built;
         int lastBudget = -1;
+        PoiPlayCapture playCapture;
         long frameAllocStart;
 
         void Awake()
         {
             EnsureConfig();
-            float world = config.worldSize;
-            float cell = config.cellSize;
-            Service = new PoiService(world, cell);
-            Simulator = new PoiFeedSimulator(Service, 20260327);
-            edgeQuery = new EdgeIndicatorQuery(Service.Store, Service.Index);
+            var composition = PoiComposition.Create(config.worldSize, config.cellSize, 20260327, seed);
+            Service = composition.Service;
+            Simulator = composition.Simulator;
+            edgeQuery = composition.Edges;
             mockSocket = new MockPoiSocket();
             mockReceiver = new PoiFeedReceiver(Service);
-            if (seed != null && seed.entries != null)
-            {
-                Service.LoadSeed(seed.entries);
-            }
 
             Simulator.SetTargetCount(config.initialCount);
             BuildWorld();
             BuildHud();
             BeginMarkerLoad();
-            BeginCaptureIfRequested();
+            playCapture = new PoiPlayCapture(this);
+            playCapture.BeginIfRequested();
             built = true;
         }
 
@@ -107,7 +107,7 @@ namespace Poi
             PumpMockFeed();
             LastHudAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - hudStart;
             LastTotalFrameAllocatedBytes = System.GC.GetAllocatedBytesForCurrentThread() - frameAllocStart;
-            CaptureAfterFrame();
+            playCapture.AfterFrame();
         }
 
         void SelectAndPresent()
@@ -138,19 +138,27 @@ namespace Poi
             lookupClock.Stop();
             LastLookupMs = lookupClock.Elapsed.TotalMilliseconds;
             LastExamined = Service.Selector.SlotsVisited;
+            LodHysteresis.Apply(hits, Service.Store, config.closeRange, config.lodHysteresis);
             MarkerDeclutter.Apply(hits, config.declutterRadius);
-            edgeQuery.Select(
-                player.position.x,
-                player.position.z,
-                config.edgeRadius,
-                minX,
-                minZ,
-                maxX,
-                maxZ,
-                config.edgeMinimumPriority,
-                config.edgeBudget,
-                config.typeMask,
-                edgeHits);
+            if (config.showEdgeIndicators)
+            {
+                edgeQuery.Select(
+                    player.position.x,
+                    player.position.z,
+                    config.edgeRadius,
+                    minX,
+                    minZ,
+                    maxX,
+                    maxZ,
+                    config.edgeMinimumPriority,
+                    config.edgeBudget,
+                    config.typeMask,
+                    edgeHits);
+            }
+            else
+            {
+                edgeHits.Clear();
+            }
             EnsurePoolSize();
             presenter.Sync(hits);
             if (edgePresenter != null)
@@ -262,7 +270,7 @@ namespace Poi
         {
             float x = Input.GetAxisRaw("Horizontal");
             float z = Input.GetAxisRaw("Vertical");
-            if (captureActive)
+            if (playCapture != null && playCapture.Active)
             {
                 x = 1f;
                 z = 0.35f;
@@ -387,7 +395,7 @@ namespace Poi
             layout.childControlWidth = true;
             layout.childForceExpandHeight = false;
 
-            stats = CreateLabel(panel, "Stats");
+            stats = CreateStats(panel);
             countSlider = CreateSlider(panel, "POI count", 1000f, 250000f, config.initialCount, value =>
             {
                 config.initialCount = Mathf.RoundToInt(value);
@@ -418,6 +426,7 @@ namespace Poi
             CreateButton(panel, "Add one", AddOne);
             CreateButton(panel, "Move one", MoveOne);
             CreateButton(panel, "Remove one", RemoveOne);
+            CreateToggle(panel, "Edge indicators", config.showEdgeIndicators, on => config.showEdgeIndicators = on);
             CreateToggle(panel, "Mock socket", false, on => mockFeedEnabled = on);
             CreateButton(panel, "Disconnect", () => mockSocket.Disconnect());
             CreateButton(panel, "Reconnect", ReconnectMock);
@@ -503,11 +512,13 @@ namespace Poi
             }
 
             detailsPanel.SetActive(true);
-            detailsText.text = "Id " + snapshot.id
-                + "\n" + snapshot.name
-                + "\n" + snapshot.type
-                + "  " + snapshot.priority
-                + "\n" + snapshot.x.ToString("0") + ", " + snapshot.z.ToString("0");
+            int length = HudText.WriteDetails(detailsBuffer, snapshot);
+            if (!SameDetails(length))
+            {
+                detailsLength = length;
+                ArrayCopy(detailsBuffer, detailsShown, length);
+                detailsText.text = new string(detailsBuffer, 0, length);
+            }
         }
 
         void ClearSelection()
@@ -524,17 +535,24 @@ namespace Poi
 
         void PumpMockFeed()
         {
-            if (!mockFeedEnabled || captureActive || mockSocket == null)
+            if (!mockFeedEnabled || playCapture.Active || mockSocket == null)
             {
                 return;
             }
 
             if (Time.unscaledTime >= nextMockEmit)
             {
-                nextMockEmit = Time.unscaledTime + 0.5f;
+                nextMockEmit = Time.unscaledTime + config.mockInterval;
                 Vector3 p = player != null ? player.position : Vector3.zero;
                 int id = nextMockId++;
-                mockSocket.MakeAdd(id, "Socket " + id, PoiType.Landmark, PoiPriority.High, IconKey.Landmark, p.x + 180f, p.z - 60f);
+                mockSocket.MakeAdd(
+                    id,
+                    "Socket " + id,
+                    config.mockType,
+                    config.mockPriority,
+                    IconKey.Landmark,
+                    p.x + config.mockOffsetX,
+                    p.z + config.mockOffsetZ);
             }
 
             while (mockSocket.TryReceive(out FeedMessage message))
@@ -552,16 +570,17 @@ namespace Poi
             }
 
             hudTimer = 0f;
-            var builder = new StringBuilder(256);
-            builder.Append("POIs ").Append(Service.Store.AliveCount);
-            builder.Append("\nMovers ").Append(Simulator.MoverCount);
-            builder.Append("\nMarkers ").Append(ActiveMarkers);
-            builder.Append("\nExamined ").Append(LastExamined);
-            builder.Append("\nLookup ms ").Append(LastLookupMs.ToString("0.000"));
-            builder.Append("\nSim ms ").Append(Simulator.LastIntegrateMs.ToString("0.000"));
-            builder.Append("\nGrid ms ").Append(Simulator.LastRelinkMs.ToString("0.000"));
-            builder.Append("\nHeight ").Append(config.cameraHeight.ToString("0"));
-            stats.text = builder.ToString();
+            int length = HudText.WriteStats(
+                statsBuffer,
+                Service.Store.AliveCount,
+                Simulator.MoverCount,
+                ActiveMarkers,
+                LastExamined,
+                LastLookupMs,
+                Simulator.LastIntegrateMs,
+                Simulator.LastRelinkMs,
+                config.cameraHeight);
+            stats.SetCharArray(statsBuffer, 0, length);
             SyncSlider(heightSlider, config.cameraHeight);
         }
 
@@ -573,6 +592,50 @@ namespace Poi
             }
 
             slider.SetValueWithoutNotify(value);
+        }
+
+        static TMP_Text CreateStats(RectTransform parent)
+        {
+            var rect = CreateRect("Stats", parent);
+            var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
+            text.font = TMP_Settings.defaultFontAsset;
+            if (text.font == null)
+            {
+                text.font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+            }
+            text.fontSize = 14f;
+            text.color = Color.white;
+            text.alignment = TextAlignmentOptions.TopLeft;
+            text.text = "Stats";
+            var layout = rect.gameObject.AddComponent<LayoutElement>();
+            layout.minHeight = 140f;
+            return text;
+        }
+
+        bool SameDetails(int length)
+        {
+            if (length != detailsLength)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < length; i++)
+            {
+                if (detailsBuffer[i] != detailsShown[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        static void ArrayCopy(char[] source, char[] destination, int length)
+        {
+            for (int i = 0; i < length; i++)
+            {
+                destination[i] = source[i];
+            }
         }
 
         static RectTransform CreateRect(string name, Transform parent)

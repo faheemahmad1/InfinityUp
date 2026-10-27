@@ -15,6 +15,7 @@ namespace Poi
 
         readonly PoiService service;
         readonly Random random;
+        readonly System.Diagnostics.Stopwatch clock = new System.Diagnostics.Stopwatch();
         int[] movers;
         float[] dirX;
         float[] dirZ;
@@ -222,7 +223,7 @@ namespace Poi
 
             float half = service.WorldSize * 0.5f;
             float step = moveSpeed * deltaTime;
-            var clock = System.Diagnostics.Stopwatch.StartNew();
+            clock.Restart();
             EnsureScratch(MoverCount);
             int moving = 0;
             for (int i = 0; i < MoverCount; i++)

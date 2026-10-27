@@ -31,6 +31,7 @@ namespace Poi
             public int next;
             public int moverIndex;
             public bool alive;
+            public MarkerLod shownLod;
         }
 
         public Slot[] Slots;
@@ -153,6 +154,7 @@ namespace Poi
             Slots[slot].next = -1;
             Slots[slot].cell = -1;
             Slots[slot].moverIndex = -1;
+            Slots[slot].shownLod = MarkerLod.None;
             RemoveAlive(slot);
             freeNext[slot] = freeHead;
             freeHead = slot;
